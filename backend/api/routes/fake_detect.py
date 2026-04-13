@@ -50,7 +50,7 @@ async def detect_fake_experience(
     github_data = None
     if payload.github_username:
         try:
-            from  services.github_service import GitHubService
+            from services.github_service import GitHubService
             gh = GitHubService()
             github_data = await gh.analyze_profile(payload.github_username)
         except Exception:

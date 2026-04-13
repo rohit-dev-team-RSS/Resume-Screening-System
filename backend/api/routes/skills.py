@@ -38,7 +38,7 @@ async def analyze_skills(
 @router.get("/market-demand")
 async def get_market_demand(current_user: UserModel = Depends(get_current_user)):
     """Get current market demand scores for top technical skills."""
-    from  services.skill_service import MARKET_DEMAND
+    from services.skill_service import MARKET_DEMAND
     sorted_skills = sorted(MARKET_DEMAND.items(), key=lambda x: x[1], reverse=True)
     return {
         "skills": [

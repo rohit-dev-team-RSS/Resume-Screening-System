@@ -1,7 +1,15 @@
+/**
+ * COMPLETE App.jsx — Replace your existing src/App.jsx with this file
+ * Includes all existing + new routes (live-interview, gamification, interview-analytics)
+ */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './context/AuthContext'
+
+// Layout — use the updated AppLayout from AppLayout_updated.jsx
 import AppLayout from './components/AppLayout'
+
+// Existing pages (keep as-is)
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
@@ -13,16 +21,25 @@ import Enhance from './pages/Enhance'
 import GitHub from './pages/GitHub'
 import FakeDetect from './pages/FakeDetect'
 
+// New pages (add these)
+import LiveInterview from './pages/LiveInterview'
+import Gamification from './pages/Gamification'
+import InterviewAnalytics from './pages/InterviewAnalytics'
+
 function ProtectedRoute({ children }) {
-  const { token, loading, user } = useAuth()
+  const { loading } = useAuth()
   if (loading) return (
-    <div className="min-h-screen bg-cream-100 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <div className="relative w-14 h-14">
-          <div className="absolute inset-0 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
-          <div className="absolute inset-2 rounded-full border-2 border-amber-100 border-b-amber-500 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="flex flex-col items-center gap-5">
+        {/* Triple ring loader */}
+        <div className="relative w-16 h-16">
+          <div className="absolute inset-0 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"/>
+          <div className="absolute inset-2 rounded-full border-4 border-violet-100 border-b-violet-500 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.4s' }}/>
+          <div className="absolute inset-4 rounded-full border-2 border-indigo-200 border-t-indigo-400 animate-spin" style={{ animationDuration: '2s' }}/>
         </div>
-        <p className="font-mono text-sm text-ink-400 animate-pulse-soft">Loading CareerAI...</p>
+        <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#94A3B8', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          Loading CareerAI...
+        </p>
       </div>
     </div>
   )
@@ -48,13 +65,13 @@ export default function App() {
             duration: 4000,
             style: {
               background: '#fff',
-              color: '#1C1C28',
-              border: '1px solid #EAE7DF',
+              color: '#1E293B',
+              border: '1px solid #E2E8F0',
               borderRadius: '14px',
-              fontFamily: '"Plus Jakarta Sans", sans-serif',
+              fontFamily: "'Inter', sans-serif",
               fontSize: '13px',
               fontWeight: '500',
-              boxShadow: '0 8px 32px rgba(15,15,20,0.12)',
+              boxShadow: '0 8px 32px rgba(15,15,20,0.10)',
               padding: '12px 16px',
             },
             success: { iconTheme: { primary: '#10B981', secondary: '#fff' } },
@@ -62,10 +79,15 @@ export default function App() {
           }}
         />
         <Routes>
+          {/* Public */}
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
+
+          {/* Protected — all inside AppLayout */}
           <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
+
+            {/* ── Existing routes (untouched) ── */}
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="upload" element={<Upload />} />
             <Route path="results" element={<Results />} />
@@ -74,7 +96,13 @@ export default function App() {
             <Route path="enhance" element={<Enhance />} />
             <Route path="github" element={<GitHub />} />
             <Route path="fake-detect" element={<FakeDetect />} />
+
+            {/* ── NEW routes ── */}
+            <Route path="live-interview" element={<LiveInterview />} />
+            <Route path="gamification" element={<Gamification />} />
+            <Route path="interview-analytics" element={<InterviewAnalytics />} />
           </Route>
+
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>

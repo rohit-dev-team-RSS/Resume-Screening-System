@@ -24,7 +24,7 @@ async def explain_score(
     if not result or result.user_id != str(current_user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
 
-    from  utils.validators import score_to_grade
+    from utils.validators import score_to_grade
     return {
         "result_id": result_id,
         "final_score": result.final_score,

@@ -20,8 +20,8 @@ from schemas.ats_schema import (
     BulkATSMatchResponse, BulkATSResultItem, ScoreBreakdown,
     KeywordAnalysis, SkillGapResponse, ExplainSectionResponse
 )
-from  services.ats_service import ATSService
-from  utils.validators import validate_object_id
+from services.ats_service import ATSService
+from utils.validators import validate_object_id
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -113,11 +113,11 @@ async def bulk_match(
 
     results = []
     for i, (resume, bert_score) in enumerate(zip(parsed_resumes, bert_scores)):
-        from  utils.nlp_utils import get_tfidf_similarity
+        from utils.nlp_utils import get_tfidf_similarity
         tfidf_score = get_tfidf_similarity(resume.parsed_data.raw_text, payload.job_description)
         final_score = round(0.6 * bert_score + 0.4 * tfidf_score, 4)
 
-        from  utils.validators import score_to_label
+        from utils.validators import score_to_label
         results.append(BulkATSResultItem(
             resume_id=str(resume.id),
             candidate_name=resume.parsed_data.full_name,

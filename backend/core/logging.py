@@ -7,7 +7,7 @@ import sys
 from typing import Optional
 
 import structlog
-from  core.config import settings
+from core.config import settings
 
 
 def setup_logging(log_level: Optional[str] = None) -> None:

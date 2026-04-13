@@ -12,7 +12,6 @@ from config.db import get_database
 from models.user_model import UserModel
 from repositories.result_repo import ResultRepository
 from repositories.user_repo import UserRepository
-from services.skill_service import MARKET_DEMAND
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -111,7 +110,7 @@ async def skills_market_analytics(
     ]
     cursor = db.results.aggregate(pipeline)
     skills_data = [doc async for doc in cursor]
-    
+    from services.skill_service import MARKET_DEMAND
     enriched = [{"skill": item["_id"], "demand_count": item["demand_count"], "market_demand_score": MARKET_DEMAND.get(item["_id"], 0.5)} for item in skills_data]
     enriched.sort(key=lambda x: x["market_demand_score"], reverse=True)
     return {"skills_in_demand": enriched, "analysis_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}

@@ -81,16 +81,10 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = 20
     MAX_PAGE_SIZE: int = 100
 
-    @field_validator("DEBUG", mode="before")
-    @classmethod
-    def parse_debug_flag(cls, v):
-        if isinstance(v, str):
-            normalized = v.strip().lower()
-            if normalized in {"false", "0", "no", "off", "release", "prod", "production"}:
-                return False
-            if normalized in {"true", "1", "yes", "on", "debug"}:
-                return True
-        return v
+    GROQ_API_KEY: Optional[str]
+    MISTRAL_API_KEY: Optional[str]
+    GAMIFICATION_ENABLED: bool = True
+    LEADERBOARD_SIZE: int = 50
 
     @field_validator("BERT_SCORE_WEIGHT", "TFIDF_SCORE_WEIGHT")
     @classmethod
@@ -108,3 +102,10 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+# ── Append these at the END of the Settings class body ──────────────────────
+# (Already in file if you see them — skip if duplicate)
+# GROQ_API_KEY: Optional[str] = None
+# MISTRAL_API_KEY: Optional[str] = None
+# GAMIFICATION_ENABLED: bool = True
+# LEADERBOARD_SIZE: int = 50
