@@ -88,8 +88,6 @@
 # chardet==5.2.0
 # pillow==10.3.0
 # aiofiles==23.2.1
-
-
 # ─── Core Backend ─────────────────────────────────────────────
 fastapi==0.110.0
 uvicorn[standard]==0.29.0
@@ -113,34 +111,69 @@ pdfplumber==0.11.0
 python-docx==1.1.2
 pypdf2==3.0.1
 
-# ─── ML & NLP (LIGHTWEIGHT + STABLE) ──────────────────────────
+# ─── ML & NLP (KEEPING YOUR ORIGINAL STACK) ───────────────────
 numpy==1.26.4
 scikit-learn==1.3.2
 sentence-transformers==2.7.0
+torch==2.2.2
+transformers==4.40.1
 nltk==3.8.1
+spacy==3.7.4
+typer==0.9.4
+
+# ─── Required NLP Dependencies (spacy + transformers) ─────────
+catalogue==2.0.10
+cymem==2.0.8
+preshed==3.0.9
+murmurhash==1.0.10
+thinc==8.2.3
+srsly==2.4.8
+wasabi==1.1.2
+weasel==0.3.4
+langcodes==3.3.0
+smart-open==6.4.0
+spacy-legacy==3.0.12
+spacy-loggers==1.0.5
 
 # ─── HTTP ─────────────────────────────────────────────────────
 httpx==0.27.0
 aiohttp==3.9.5
+requests==2.31.0
+
+# ─── Background Tasks ─────────────────────────────────────────
+celery==5.4.0
+redis==5.0.4
 
 # ─── Env & Logging ───────────────────────────────────────────
 python-dotenv==1.0.1
 structlog==24.1.0
+prometheus-client==0.20.0   # ✅ REQUIRED (your error fix)
+sentry-sdk==2.1.1
+
+# ─── Caching ─────────────────────────────────────────────────
+aiocache==0.12.2
 
 # ─── Utils ───────────────────────────────────────────────────
 python-dateutil==2.9.0
 chardet==5.2.0
 pillow==10.3.0
 aiofiles==23.2.1
+packaging==24.0
+tqdm==4.66.4
+filelock==3.13.1
+regex==2024.4.16
+safetensors==0.4.3
+tokenizers==0.15.2
+scipy==1.11.4
+joblib==1.3.2
+lxml==5.2.1
 
-# ─── Required Dependencies ─────
-requests
-packaging
-tqdm
-filelock
-regex
-safetensors
-tokenizers
-scipy
-joblib
-lxml
+# ─── PDF Generation ───────────────────────────────────────────
+reportlab==4.1.0
+weasyprint==62.1
+jinja2==3.1.4
+
+# ─── Testing (optional but safe) ──────────────────────────────
+pytest==8.2.0
+pytest-asyncio==0.23.6
+faker==25.0.0
