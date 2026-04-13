@@ -147,7 +147,7 @@ redis==5.0.4
 # ─── Env & Logging ───────────────────────────────────────────
 python-dotenv==1.0.1
 structlog==24.1.0
-prometheus-client==0.20.0   # ✅ REQUIRED (your error fix)
+prometheus-client==0.20.0 
 sentry-sdk==2.1.1
 
 # ─── Caching ─────────────────────────────────────────────────
@@ -163,7 +163,7 @@ tqdm==4.66.4
 filelock==3.13.1
 regex==2024.4.16
 safetensors==0.4.3
-tokenizers==0.15.2
+tokenizers==0.19.1
 scipy==1.11.4
 joblib==1.3.2
 lxml==5.2.1
