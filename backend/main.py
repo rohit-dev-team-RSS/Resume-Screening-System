@@ -56,13 +56,17 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
-    app.add_middleware(CORSMiddleware,
-        # allow_origins=settings.ALLOWED_ORIGINS,
+    app.add_middleware(
+        CORSMiddleware,
         allow_origins=[
-            "http://localhost:5173",   # React/Vite frontend
-            "http://127.0.0.1:5173"
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "https://resume-screening-system-lyart.vercel.app",
         ],
-        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @app.middleware("http")
