@@ -15,7 +15,8 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.error("Logout error:", err)
     } finally {
-      localStorage.removeItem("token")   // ✅ remove token
+        localStorage.removeItem("access_token")
+        localStorage.removeItem("refresh_token") // ✅ remove token
       delete api.defaults.headers.common["Authorization"] // ✅ remove header
       setUser(null)
     }
@@ -25,7 +26,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let isMounted = true
 
-    const token = localStorage.getItem("token")
+    const token = localStorage.getItem("access_token")
 
     // ❗ ONLY call API if token exists
     if (!token) {
@@ -43,7 +44,8 @@ export function AuthProvider({ children }) {
       .catch(() => {
         if (isMounted) {
           setUser(null)
-          localStorage.removeItem("token") // invalid token cleanup
+            localStorage.removeItem("access_token")
+            localStorage.removeItem("refresh_token")
         }
       })
       .finally(() => {
@@ -59,11 +61,11 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const { data } = await api.post('/auth/login', { email, password })
 
-    // ✅ SAVE TOKEN
-    localStorage.setItem("token", data.token)
+    // ✅ correct tokens
+    localStorage.setItem("access_token", data.access_token)
+    localStorage.setItem("refresh_token", data.refresh_token)
 
-    // ✅ attach token globally
-    api.defaults.headers.common["Authorization"] = `Bearer ${data.token}`
+    api.defaults.headers.common["Authorization"] = `Bearer ${data.access_token}`
 
     setUser(data.user)
     return data
@@ -73,8 +75,10 @@ export function AuthProvider({ children }) {
   const signup = async (payload) => {
     const { data } = await api.post('/auth/signup', payload)
 
-    localStorage.setItem("token", data.token)
-    api.defaults.headers.common["Authorization"] = `Bearer ${data.token}`
+    localStorage.setItem("access_token", data.access_token)
+    localStorage.setItem("refresh_token", data.refresh_token)
+
+    api.defaults.headers.common["Authorization"] = `Bearer ${data.access_token}`
 
     setUser(data.user)
     return data
@@ -87,11 +91,12 @@ const googleLogin = useCallback(async (token, role = 'candidate') => {
   try {
     const { data } = await api.post('/auth/google', { token, role });
 
-    // 1. Save to Storage
-    localStorage.setItem("token", data.token);
+    localStorage.setItem("access_token", data.access_token)
+    localStorage.setItem("refresh_token", data.refresh_token)
 
     // 2. Set API Header
-    api.defaults.headers.common["Authorization"] = `Bearer ${data.token}`;
+    // api.defaults.headers.common["Authorization"] = `Bearer ${data.token}`;
+    api.defaults.headers.common["Authorization"] = `Bearer ${data.access_token}`
 
     // 3. Update State
     setUser(data.user);
