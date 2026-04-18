@@ -14,14 +14,33 @@ const api = axios.create({
 // ✅ REQUEST INTERCEPTOR (TOKEN ADD)
 // ================================
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("access_token")
-
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // 1. localStorage (primary)
+  let token = localStorage.getItem("access_token");
+  
+  // 2. Fallback: Cookie (httponly support)
+  if (!token) {
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'access_token') {
+        token = value;
+        break;
+      }
+    }
   }
 
-  return config
-})
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+    console.log('[API] Token attached:', token.length + ' chars');
+  } else {
+    console.warn('[API] No token found for:', config.url);
+  }
+
+  return config;
+}, (error) => {
+  console.error('[API] Request setup error:', error);
+  return Promise.reject(error);
+});
 
 
 // ================================
@@ -32,6 +51,8 @@ api.interceptors.response.use(
   async (err) => {
     const originalRequest = err.config
 
+    console.log('[API] 401 detected, attempting refresh...', { url: originalRequest?.url });
+
     if (
       err.response?.status === 401 &&
       !originalRequest._retry &&
@@ -41,37 +62,41 @@ api.interceptors.response.use(
 
       try {
         const refreshToken = localStorage.getItem("refresh_token")
+        console.log('[API] Refresh token found:', !!refreshToken);
 
-        // ❌ Agar refresh token hi nahi hai → logout
         if (!refreshToken) {
-          localStorage.clear()
-          window.location.href = "/login"
-          return Promise.reject(err)
+          console.error('[API] No refresh token - forcing logout');
+          localStorage.clear();
+          window.location.href = "/login";
+          return Promise.reject(err);
         }
 
-        // ✅ Refresh call (correct format)
         const response = await axios.post(
           `${BASE}/auth/refresh`,
-          {
-            refresh_token: refreshToken
-          }
-        )
+          { refresh_token: refreshToken },
+          { timeout: 10000 }
+        );
 
-        const newAccessToken = response.data.access_token
+        const newAccessToken = response.data.access_token;
+        console.log('[API] Refresh SUCCESS - new token length:', newAccessToken?.length);
 
-        // ✅ Save new token
-        localStorage.setItem("access_token", newAccessToken)
+        localStorage.setItem("access_token", newAccessToken);
+        if (response.data.refresh_token) {
+          localStorage.setItem("refresh_token", response.data.refresh_token);
+        }
 
-        // ✅ Retry original request with new token
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        console.log('[API] Retrying original request');
 
-        return api(originalRequest)
+        return api(originalRequest);
 
       } catch (refreshError) {
-        // ❌ Refresh fail → logout
-        localStorage.clear()
-        window.location.href = "/login"
-        return Promise.reject(refreshError)
+        console.error('[API] Refresh FAILED:', refreshError.response?.data || refreshError.message);
+        
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        window.location.href = "/login?reason=auth_expired";
+        return Promise.reject(refreshError);
       }
     }
 

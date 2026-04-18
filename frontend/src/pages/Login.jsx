@@ -6,7 +6,8 @@ import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
 import { GoogleLogin } from '@react-oauth/google'
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react'
-// import illustration from '../public/illustration.png'
+
+const illustration = "/illustration.png";
 
 export default function Login() {
   const { login, googleLogin } = useAuth()
@@ -61,7 +62,7 @@ export default function Login() {
       <div className="relative w-full h-full rounded-[90px] overflow-hidden hidden lg:block">
         <div className="absolute bottom-[20px] left-[130px] z-0">
         <img
-          src="/illustration.png" // Direct slash se start karein, Vite public folder se khud utha lega
+          src={illustration} // Direct slash se start karein, Vite public folder se khud utha lega
           alt="illustration"
           className="w-[550px] max-w-none object-contain animate-[float_6s_ease-in-out_infinite]"
         />

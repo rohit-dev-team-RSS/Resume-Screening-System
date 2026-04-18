@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useDropzone } from 'react-dropzone'
 import toast from 'react-hot-toast'
+import { useAuth } from '../context/AuthContext';
 import {
   uploadResume, getResumes, matchATS, enhanceResume, generatePDF,
 } from '../services/api'
@@ -536,41 +537,61 @@ const handleDownloadPDF = async () => {
   try {
     setGeneratingPDF(true)
 
-    // 🔥 CORRECT ID
-    const resumeId = result.resume_id || result.id
+    const resumeId = result?.resume_id || result?.id || '';
+    console.log('[PDF] Using resume_id:', resumeId, 'Full result:', result);
 
     if (!resumeId) {
-      throw new Error("Resume ID missing")
+      toast.error('No resume found. Please run analysis first.');
+      return;
     }
 
-    // STEP 1: Generate
-    const res = await api.post('/pdf/generate', {
-      resume_id: resumeId,
-      template: "modern"
-    })
+    // Generate PDF
+    const res = await generatePDF({ resume_id: resumeId, template: "modern" });
+    console.log('[PDF] SUCCESS response:', res.data);
 
-    console.log("PDF GEN RESPONSE:", res.data)
+    const downloadUrl = res.data.download_path;
+    console.log('[PDF] Downloading via API:', downloadUrl);
+    
+    // Fix double /api/v1 prefix (backend returns full path, api adds baseURL)
+    const cleanUrl = downloadUrl.replace('/api/v1', '');
+    console.log('[PDF] Clean URL:', cleanUrl);
 
-    // STEP 2: Download
-    const downloadUrl = res.data.download_path
+    // Download with auth token via API
+    const blobResponse = await api.get(cleanUrl, { 
+      responseType: 'blob',
+      timeout: 30000 
+    });
 
-    window.open(`http://localhost:8000${downloadUrl}`, "_blank")
+    // Create download link
+    const blob = new Blob([blobResponse.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `enhanced-resume-${Date.now()}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    toast.success('✅ PDF downloaded!');
+    console.log('[PDF] Download complete');
 
   } catch (err) {
-      console.error("FULL ERROR:", err)
-      console.error("ERROR RESPONSE:", err.response)
-      console.error("ERROR DATA:", err.response?.data)
-
-    const errorMsg =
-      err.response?.data?.detail?.[0]?.msg ||
-      err.response?.data?.detail ||
-      err.message ||
-      "Something went wrong"
-
-    toast.error(errorMsg)
-
+    console.error('[PDF] FULL ERROR:', err);
+    console.error('[PDF] Response:', err.response?.data);
+    
+    const detail = err.response?.data?.detail;
+    if (detail === "Invalid or expired authentication credentials") {
+      toast.error('Session expired. Please login again.');
+      localStorage.clear();
+      window.location.href = '/login?expired=true';
+    } else if (detail?.includes('not found')) {
+      toast.error('Resume not found. Try re-uploading.');
+    } else {
+      toast.error(detail || 'PDF generation failed');
+    }
   } finally {
-    setGeneratingPDF(false)
+    setGeneratingPDF(false);
   }
 }
 
@@ -1013,14 +1034,15 @@ const handleDownloadPDF = async () => {
 
                 <motion.button
                   onClick={handleDownloadPDF}
-                  disabled={generatingPDF}
-                  whileHover={{ scale: generatingPDF ? 1 : 1.01 }}
-                  whileTap={{ scale: generatingPDF ? 1 : 0.98 }}
+                  disabled={generatingPDF || !result}
+                  whileHover={{ scale: (generatingPDF || !result) ? 1 : 1.01 }}
+                  whileTap={{ scale: (generatingPDF || !result) ? 1 : 0.98 }}
                   style={{
-                    padding:'13px 0', borderRadius:14, border:'none', cursor: generatingPDF ? 'not-allowed' : 'pointer',
+                    padding:'13px 0', borderRadius:14, border:'none', 
+                    cursor: generatingPDF || !result ? 'not-allowed' : 'pointer',
                     fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:14, color:'white',
-                    background: generatingPDF ? '#94A3B8' : 'linear-gradient(135deg,#065F46,#059669)',
-                    boxShadow: generatingPDF ? 'none' : '0 4px 14px rgba(5,150,105,0.35)',
+                    background: generatingPDF || !result ? '#94A3B8' : 'linear-gradient(135deg,#065F46,#059669)',
+                    boxShadow: (generatingPDF || !result) ? 'none' : '0 4px 14px rgba(5,150,105,0.35)',
                     transition:'all 0.2s',
                   }}>
                   {generatingPDF ? (
@@ -1031,7 +1053,7 @@ const handleDownloadPDF = async () => {
                       </svg>
                       Generating PDF...
                     </span>
-                  ) : '⬇  Download Resume PDF'}
+                  ) : !result ? 'Run Analysis First' : '⬇ Download Resume PDF'}
                 </motion.button>
               </div>
 
