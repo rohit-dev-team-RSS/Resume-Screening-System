@@ -26,6 +26,7 @@ from api.routes import github
 from api.routes.interview_ai import router as interview_ai_router
 from api.routes.interview_analytics import router as interview_analytics_router
 # from api.routes.live_interview import router as live_interview_router
+from api.routes.live_interview import router as live_interview_router
 
 from config.db import connect_db, disconnect_db
 from core.config import settings
@@ -114,7 +115,7 @@ def create_application() -> FastAPI:
     app.include_router(interview.router, prefix=f"{p}/interview", tags=["Interview"])
     # app.include_router(live_interview_router, prefix=f"{p}/live-interview", tags=["Live Interview"])
     app.include_router(interview_ai_router, prefix=f"{p}/interview", tags=["AI Interview"])
-
+    app.include_router(live_interview_router, prefix=f"{p}/live-interview", tags=["Live Interview"])
     # ── Interview Analytics ────────────────────────────────────────────────────
     app.include_router(interview_analytics_router,
                        prefix=f"{p}/interview-analytics", tags=["Interview Analytics"])
