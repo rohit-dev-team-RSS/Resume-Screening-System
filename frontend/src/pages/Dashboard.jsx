@@ -83,12 +83,12 @@ export default function Dashboard() {
   useEffect(() => {
     Promise.all([
       getMyAnalytics().catch(() => ({ data: MOCK })),
-      getATSHistory({ page_size: 5 }).catch(() => ({ data: { items: MOCK_HISTORY } })),
-      getResumes({ page_size: 5 }).catch(() => ({ data: { resumes: [] } })),
+      // getATSHistory({ page_size: 5 }).catch(() => ({ data: { items: MOCK_HISTORY } })),
+      // getResumes({ page_size: 5 }).catch(() => ({ data: { resumes: [] } })),
     ]).then(([a, h, r]) => {
       setAnalytics(a.data || MOCK)
-      setHistory(h.data?.items || MOCK_HISTORY)
-      setResumes(r.data?.resumes || [])
+      // setHistory(h.data?.items || MOCK_HISTORY)
+      // setResumes(r.data?.resumes || [])
     }).finally(() => setLoading(false))
   }, [])
 
