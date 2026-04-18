@@ -34,9 +34,9 @@ const NAV_GROUPS = [
   {
     label: 'Resume Tools',
     items: [
-      { to: '/upload', label: 'Resume Library', icon: Icons.upload },
+      // { to: '/upload', label: 'Resume Library', icon: Icons.upload },
       { to: '/results', label: 'ATS Matcher', icon: Icons.ats },
-      { to: '/enhance', label: 'AI Enhancer', icon: Icons.enhance },
+      // { to: '/enhance', label: 'AI Enhancer', icon: Icons.enhance },
     ],
   },
   {
