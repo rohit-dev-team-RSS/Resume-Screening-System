@@ -15,7 +15,7 @@ import Enhance            from './pages/Enhance'
 import GitHub             from './pages/GitHub'
 import FakeDetect         from './pages/FakeDetect'
 import LiveInterview      from './pages/LiveInterview'
-// import LiveInterviewV2    from './pages/LiveInterviewV2'
+import LiveInterviewV2    from './pages/LiveInterviewV2'
 import Gamification       from './pages/Gamification'
 import InterviewAnalytics from './pages/InterviewAnalytics'
 
@@ -103,7 +103,7 @@ export default function App() {
             {/* Interview */}
             <Route path="interview"            element={<Interview />} />
             <Route path="live-interview"       element={<LiveInterview />} />
-            {/* <Route path="live-interview-v2"    element={<LiveInterviewV2 />} /> */}
+            <Route path="live-interview-v2"    element={<LiveInterviewV2 />} />
             <Route path="interview-analytics"  element={<InterviewAnalytics />} />
 
             {/* Gamification */}

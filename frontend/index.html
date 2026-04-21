@@ -22,8 +22,22 @@
       ::selection { background: rgba(99,102,241,0.15); color: #1C1C28; }
     </style>
 
-    <!-- ✅ ADD THIS HERE -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <!--  ADD THIS HERE -->
+  <!-- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script> -->
+
+  <!--  TensorFlow.js + COCO-SSD (phone/object detection) -->
+  <!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script> -->
+
+  <!--  face-api.js (emotions) -->
+  <!-- <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script> --> 
+   <!-- MediaPipe FaceMesh (face + iris gaze) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<!-- TensorFlow.js + COCO-SSD are loaded dynamically by useAdvancedDetection.js -->
+<!-- face-api.js is also loaded dynamically -->
 
   </head>
 
@@ -32,9 +46,6 @@
 
     <!-- Google OAuth Script -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- add mediapipe here -->
-    <!-- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.3/face_mesh.js"></script> -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
     <script type="module" src="/src/main.jsx"></script>
   </body>

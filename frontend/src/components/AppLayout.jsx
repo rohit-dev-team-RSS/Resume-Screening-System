@@ -42,7 +42,7 @@ const NAV_GROUPS = [
   {
     label: 'AI Interview',
     items: [
-      { to: '/live-interview', label: 'Live Interview', icon: Icons.liveInterview, badge: 'NEW', badgeColor: '#6366F1' },
+      { to: '/live-interview-v2', label: 'Live Interview', icon: Icons.liveInterview, badge: 'NEW', badgeColor: '#6366F1' },
       { to: '/interview', label: 'Quick Practice', icon: Icons.interview },
       { to: '/interview-analytics', label: 'Interview Stats', icon: Icons.interviewAnalytics },
     ],
