@@ -13,14 +13,14 @@ export default function Signup() {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
-  const { register, handleSubmit, watch, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     defaultValues: { role: 'candidate' }
   })
-
+  
   // Watch selected role for Google Login
   const selectedRole = watch("role")
 
-  // ✅ MANUAL SIGNUP SUBMIT
+  // MANUAL SIGNUP SUBMIT
   const onSubmit = async (data) => {
     setLoading(true)
     try {
@@ -128,7 +128,7 @@ export default function Signup() {
                       className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
                         selectedRole === role ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'
                       }`}
-                      onClick={() => register("role").onChange({ target: { value: role, name: "role" } })}
+                      onClick={() => setValue("role", role)}
                     >
                       {role.charAt(0).toUpperCase() + role.slice(1)}
                     </button>
@@ -142,22 +142,39 @@ export default function Signup() {
               <div className="relative">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  {...register('full_name', { required: 'Name is required' })}
+                  {...register('full_name', { 
+                    required: 'Name is required',
+                    minLength: { value: 2, message: 'Name must be at least 2 characters' } // Added this
+                  })}
                   placeholder="Full Name"
-                  className="w-full h-[48px] pl-12 pr-4 border border-[#D1D5DB] rounded-[10px] focus:border-[#2E9BDA] focus:ring-2 focus:ring-[#2E9BDA]/20 outline-none"
+                  className={`w-full h-[48px] pl-12 pr-4 border rounded-[10px] outline-none transition-all ${
+                    errors.full_name ? 'border-red-500' : 'border-[#D1D5DB] focus:border-[#2E9BDA]'
+                  }`}
                 />
               </div>
+              {errors.full_name && (
+                <p className="text-red-500 text-xs mt-1 ml-1 font-medium italic">{errors.full_name.message}</p>
+              )}
 
               {/* EMAIL */}
               <div className="relative">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  {...register('email', { required: 'Email is required' })}
+                  {...register('email', { 
+                    required: 'Email is required',
+                    pattern: {
+                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                      message: "Invalid email address"
+                    }
+                  })}
                   type="email"
                   placeholder="Email Address"
-                  className="w-full h-[48px] pl-12 pr-4 border border-[#D1D5DB] rounded-[10px] focus:border-[#2E9BDA] focus:ring-2 focus:ring-[#2E9BDA]/20 outline-none"
+                  className="w-full h-[48px] pl-12 pr-4 border border-[#D1D5DB] rounded-[10px] focus:border-[#2E9BDA] outline-none" 
                 />
               </div>
+              {errors.email && (
+                <p className="text-red-500 text-xs mt-1 ml-1 font-medium italic">{errors.email.message}</p>
+              )}
 
               {/* PASSWORD */}
               <div className="relative">
@@ -172,6 +189,35 @@ export default function Signup() {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </div>
               </div>
+              {errors.password && (
+                <p className="text-red-500 text-xs mt-1 ml-1 font-medium italic">
+                  {errors.password.message}
+                </p>
+              )}
+              {/* CONFIRM PASSWORD */}
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  {...register('confirm_password', {
+                    required: 'Please confirm your password',
+                    validate: (value) => value === watch('password') || 'Passwords do not match'
+                  })}
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Confirm Password"
+                  className={`w-full h-[48px] pl-12 pr-4 border rounded-[10px] outline-none transition-all ${
+                    errors.confirm_password 
+                      ? 'border-red-500 focus:ring-red-200' 
+                      : 'border-[#D1D5DB] focus:border-[#2E9BDA] focus:ring-[#2E9BDA]/20'
+                  } focus:ring-2`}
+                />
+              </div>
+
+              {/* ERROR MESSAGE */}
+              {errors.confirm_password && (
+                <p className="text-red-500 text-xs mt-1 ml-1 font-medium italic">
+                  {errors.confirm_password.message}
+                </p>
+              )}
 
               <button
                 type="submit"

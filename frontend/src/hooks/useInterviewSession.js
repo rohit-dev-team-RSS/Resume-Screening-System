@@ -101,15 +101,33 @@ export function useInterviewSession() {
     setPhase(SESSION_PHASE.EVALUATING)
 
     try {
-      const { data } = await api.post(`${BASE}/sessions/${session.session_id}/answer`, {
-        question_id: currentQ.id,
-        answer: answerText || "No answer provided.",
-        answer_source: answerSource,
-        time_taken_secs: timeTaken,
-        reattempted,
-        voice_pauses: voicePauses,
-        speech_rate_wpm: speechRate,
-      })
+      // const { data } = await api.post(`${BASE}/sessions/${session.session_id}/answer`, {
+      //   question_id: currentQ.id,
+      //   answer: answerText || "No answer provided.",
+      //   answer_source: answerSource,
+      //   time_taken_secs: timeTaken,
+      //   reattempted,
+      //   voice_pauses: voicePauses,
+      //   speech_rate_wpm: speechRate,
+      // })
+    const payload = {
+      question_id: currentQ?.id,
+      question_text: currentQ?.text,
+      category: currentQ?.category || "technical",
+      answer: answerText,
+      answer_source: answerSource,
+      time_taken_secs: timeTaken,
+      reattempted,
+      voice_pauses: voicePauses,
+      speech_rate_wpm: speechRate,
+    };
+
+    console.log("🚀 FINAL PAYLOAD:", payload);
+
+    const { data } = await api.post(
+      `${BASE}/sessions/${session.session_id}/answer`,
+      payload
+    );
 
       setCurrentEval(data.evaluation || {})
       setAnswers(prev => [...prev, { ...data, answer: answerText }])

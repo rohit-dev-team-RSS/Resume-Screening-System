@@ -59,7 +59,9 @@ class ATSService:
         """
         t_start = time.perf_counter()
 
-        resume_text = resume.parsed_data.raw_text if resume.parsed_data else ""
+        resume_text = ""
+        if resume.parsed_data and resume.parsed_data.raw_text:
+            resume_text = resume.parsed_data.raw_text
         if not resume_text.strip():
             raise ValueError("Resume has no parsed text. Re-upload and parse first.")
 

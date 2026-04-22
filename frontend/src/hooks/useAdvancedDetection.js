@@ -19,8 +19,8 @@ const TFJS_CDN = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.m
 const COCOSSL_CDN   = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js'
 // const FACEAPI_CDN   = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js'
 const FACEAPI_CDN = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
-const FACE_API_MODELS= 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'
-
+// const FACE_API_MODELS= 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'
+const FACE_API_MODELS = '/models'
 // MediaPipe (loaded via index.html script tags — see instructions)
 // @mediapipe/face_mesh and @mediapipe/camera_utils must be in index.html
 
@@ -58,7 +58,7 @@ export function useAdvancedDetection({
   active = true,
   faceInterval  = 1500,   // ms between face checks
   objectInterval= 4000,   // ms between object detection checks
-  emotionInterval = 5000, // ms between emotion checks
+  emotionInterval = 2000, // ms between emotion checks
 }) {
   // ── State ─────────────────────────────────────────────────────────────────
   const [status, setStatus] = useState({
@@ -190,9 +190,18 @@ const initMediaPipe = useCallback(async () => {
     fm.onResults(handleFaceMeshResults);
     // Remove fm.initialize() if it's causing 'Module.arguments' error, 
     // FaceMesh usually initializes on the first .send()
-    faceMeshRef.current = fm;
-    if (mountedRef.current) setStatus(s => ({ ...s, mpReady: true }));
-    return true;
+      faceMeshRef.current = fm;
+      // Test send to verify ready
+      if (videoRef.current) {
+        try {
+          await fm.send({ image: videoRef.current });
+          console.log('[Detection] FaceMesh verified ready');
+        } catch (e) {
+          console.warn('[Detection] FaceMesh test send failed:', e.message);
+        }
+      }
+      if (mountedRef.current) setStatus(s => ({ ...s, mpReady: true }));
+      return true;
   } catch (e) {
     console.error('[Detection] FaceMesh error:', e);
     return false;
@@ -219,13 +228,8 @@ const initCocoSSD = useCallback(async () => {
     await window.tf.ready();
     
     // Agar WebGL available hai toh use set karein, varna clash kam hoga
-    if (window.tf.getBackend() !== 'webgl') {
-      try {
-        await window.tf.setBackend('webgl');
-      } catch (e) {
-        console.warn("WebGL not available, falling back to CPU");
-      }
-    }
+    // Skip TF backend set - let face-api.js use default/global TF
+    // await window.tf.setBackend('webgl'); // REMOVED: Conflicts with face-api.js
 
     await loadScript(COCOSSL_CDN, 'coco-ssd-cdn');
 
@@ -550,30 +554,58 @@ const initFaceApi = useCallback(async () => {
   //   }
   // }, [videoRef])
 
-  const runEmotionDetection = useCallback(async () => {
+const runEmotionDetection = useCallback(async () => {
   if (!window.faceapi || !videoRef?.current) return;
+
   const vid = videoRef.current;
-  if (vid.readyState < 2) return;
+
+  // 🔥 Ensure video fully ready
+  if (vid.readyState !== 4) return;
 
   try {
-    // IMPORTANT: face-api ko batana padta hai ki TF engine already set hai
     const fa = window.faceapi;
-    
-    // Check if models are actually loaded before running
-    if (!fa.nets.tinyFaceDetector.params || !fa.nets.faceExpressionNet.params) {
-       return; 
+
+    // 🔥 MODEL CHECK
+    if (!fa.nets.tinyFaceDetector?.params || !fa.nets.faceExpressionNet?.params) {
+      console.warn('[Detection] Models not loaded');
+      return;
     }
 
-    const detections = await fa.detectAllFaces(
-      vid,
-      new fa.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 })
-    ).withFaceExpressions();
+    // 🔥 USE SINGLE FACE (IMPORTANT)
+    const detection = await fa
+      .detectSingleFace(
+        vid,
+        new fa.TinyFaceDetectorOptions({
+          inputSize: 160,
+          scoreThreshold: 0.5
+        })
+      )
+      .withFaceExpressions();
 
-    if (!detections || detections.length === 0) return;
-    
-    // Baaki logic same...
+    if (!detection) {
+      console.log("No face for emotion");
+      return;
+    }
+
+    const expressions = detection.expressions;
+
+    const dominant = Object.entries(expressions)
+      .sort((a, b) => b[1] - a[1])[0];
+
+    console.log("🔥 Emotion:", dominant);
+
+    setStatus(s => ({ ...s, emotion: dominant[0] }));
+
+    if (SUSPICIOUS_EMOTIONS.has(dominant[0]) && dominant[1] > 0.6) {
+      emitEvent(
+        'suspicious_emotion',
+        'low',
+        `${dominant[0]} detected (${(dominant[1] * 100).toFixed(0)}%)`
+      );
+    }
+
   } catch (e) {
-    console.log('[Detection] Emotion detection skip due to engine lock');
+    console.error("Emotion error:", e);
   }
 }, [videoRef]);
 

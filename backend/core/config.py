@@ -81,8 +81,8 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = 20
     MAX_PAGE_SIZE: int = 100
 
-    GROQ_API_KEY: Optional[str]
-    MISTRAL_API_KEY: Optional[str]
+    GROQ_API_KEY: str | None = None
+    MISTRAL_API_KEY: str | None = None
     GAMIFICATION_ENABLED: bool = True
     LEADERBOARD_SIZE: int = 50
     GOOGLE_CLIENT_ID: str = "1032374161774-fu7okbh4l4cg1bt30t8o47p1ttto95dg.apps.googleusercontent.com"

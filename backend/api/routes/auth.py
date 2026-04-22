@@ -77,7 +77,7 @@ async def google_auth(
             requests.Request()
         )
     except Exception as e:
-        print("GOOGLE ERROR:", str(e))  # 🔥 IMPORTANT
+        print("GOOGLE ERROR:", str(e))
         raise HTTPException(status_code=401, detail=str(e))
 
     email = idinfo.get("email").lower()
@@ -345,7 +345,6 @@ async def change_password(
     await user_repo.update(str(current_user.id), {"hashed_password": new_hash})
     logger.info("Password changed", user_id=str(current_user.id))
     return MessageResponse(message="Password changed successfully.")
-
 
 # ─── DELETE /auth/me ──────────────────────────────────────────────────────────
 @router.delete("/me", response_model=MessageResponse)

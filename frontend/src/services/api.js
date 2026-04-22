@@ -6,13 +6,10 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
 const api = axios.create({
   baseURL: BASE,
   timeout: 60000,
-  withCredentials: false // ❌ JWT use ho raha hai → cookies ki need nahi
+  withCredentials: false // JWT use ho raha hai → cookies ki need nahi
 })
 
-
-// ================================
-// ✅ REQUEST INTERCEPTOR (TOKEN ADD)
-// ================================
+// REQUEST INTERCEPTOR (TOKEN ADD)
 api.interceptors.request.use((config) => {
   // 1. localStorage (primary)
   let token = localStorage.getItem("access_token");
@@ -43,9 +40,8 @@ api.interceptors.request.use((config) => {
 });
 
 
-// ================================
-// ✅ RESPONSE INTERCEPTOR (AUTO REFRESH)
-// ================================
+// RESPONSE INTERCEPTOR (AUTO REFRESH)
+
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
@@ -105,9 +101,7 @@ api.interceptors.response.use(
 )
 
 
-// ================================
-// ✅ API FUNCTIONS
-// ================================
+// API FUNCTIONS
 
 export const uploadResume = (file, onProgress) => {
   const f = new FormData()
@@ -152,6 +146,27 @@ export const getMyAnalytics = (p) =>
 export const getSkillsMarket = () =>
   api.get('/analytics/skills-market')
 
+// Recruiter APIs (NEW)
+export const searchCandidates = (payload) => api.post('/recruiter/search', payload)
+export const getCandidateDetail = (id) => api.get(`/recruiter/candidate/${id}`)
+export const downloadResume = (id) => api.get(`/recruiter/resume/${id}/download`, {
+  responseType: 'blob'
+})
 
-// ================================
+export const matchJD = async (data) => {
+  try {
+    console.log("[Recruiter] Sending JD:", data);
+
+    const res = await api.post("/recruiter/v2/match-jd", data);
+
+    console.log("[Recruiter] Response:", res.data);
+
+    return res.data;
+  } catch (err) {
+    console.error("[Recruiter] ERROR:", err.response?.data || err.message);
+    throw err;
+  }
+};
+
+
 export default api

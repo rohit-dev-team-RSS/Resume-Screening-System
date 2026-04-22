@@ -17,8 +17,9 @@ from starlette.responses import Response
 # ── Existing routes ────────────────────────────────────────────────────────────
 from api.routes import (
     auth, resume, ats, skills, explain, enhance,
-    interview, pdf_gen, recruiter, analytics, health,
+    interview, pdf_gen, recruiter, recruiter_v2, analytics, health,
 )
+from api.routes.recruiter_v2 import router as recruiter_v2_router
 from api.routes.fake_detect import router as fake_detect_router
 from api.routes import github
 
@@ -27,6 +28,7 @@ from api.routes.interview_ai import router as interview_ai_router
 from api.routes.interview_analytics import router as interview_analytics_router
 # from api.routes.live_interview import router as live_interview_router
 from api.routes.live_interview import router as live_interview_router
+from api.routes.recruiter_v2 import router as recruiter_router
 
 from config.db import connect_db, disconnect_db
 from core.config import settings
@@ -102,6 +104,7 @@ def create_application() -> FastAPI:
     app.include_router(enhance.router,      prefix=f"{p}/enhance",     tags=["Enhance"])
     app.include_router(pdf_gen.router,      prefix=f"{p}/pdf",         tags=["PDF"])
     app.include_router(recruiter.router,    prefix=f"{p}/recruiter",   tags=["Recruiter"])
+    app.include_router(recruiter_v2_router, prefix=f"{p}/recruiter/v2", tags=["Recruiter V2"])
     app.include_router(analytics.router,    prefix=f"{p}/analytics",   tags=["Analytics"])
     app.include_router(fake_detect_router,  prefix=f"{p}/fake-detect", tags=["Fake Detect"])
     app.include_router(github.router,       prefix=f"{p}/github",      tags=["GitHub"])
@@ -118,6 +121,7 @@ def create_application() -> FastAPI:
     # ── Interview Analytics ────────────────────────────────────────────────────
     app.include_router(interview_analytics_router,
                        prefix=f"{p}/interview-analytics", tags=["Interview Analytics"])
+    app.include_router(recruiter_router, prefix="/api/v1/recruiter", tags=["Recruiter"])
 
     # ── Prometheus ────────────────────────────────────────────────────────────
     @app.get("/metrics", include_in_schema=False)

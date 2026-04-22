@@ -1,759 +1,1144 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+/**
+ * LiveInterviewV2 — Production AI Mock Interview Platform
+ * Features: AI avatar TTS, face detection, voice input, real-time cheating detection,
+ *           per-question AI eval, reattempt, warnings system, final report
+ */
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useNavigate, useLocation } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
-import CameraPreview from '../components/interview/CameraPreview'
-import CheatingAlert from '../components/interview/CheatingAlert'
-import Timer from '../components/interview/Timer'
-import ScoreGauge from '../components/interview/ScoreGauge'
-import FeedbackCard from '../components/interview/FeedbackCard'
-import { getResumes, generateAIInterview, evaluateAnswer, completeInterviewSession, submitCheatingReport } from '../services/interviewApi'
+import { useInterviewSession, SESSION_PHASE } from '../hooks/useInterviewSession'
+import { useSpeechToText, useTextToSpeech } from '../hooks/useSpeech'
+import { useAdvancedDetection } from '../hooks/useAdvancedDetection'
 
-// ── Session Phases ────────────────────────────────────────────────────────────
-const PHASE = { SETUP: 'setup', BRIEFING: 'briefing', ANSWERING: 'answering', FEEDBACK: 'feedback', COMPLETE: 'complete' }
+import AIAvatar from '../components/interview/AIAvatar'
+import InterviewReport from '../components/interview/InterviewReport'
+import { getResumes } from '../services/api'
 
-// ── Difficulty config ─────────────────────────────────────────────────────────
-const DIFF_CFG = {
-  easy:   { color: '#10B981', bg: '#ECFDF5', label: 'Easy', time: 90 },
-  medium: { color: '#6366F1', bg: '#EEF2FF', label: 'Medium', time: 120 },
-  hard:   { color: '#F43F5E', bg: '#FFF1F2', label: 'Hard', time: 180 },
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmt = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
+
+const DIFF_CONFIG = {
+  easy:   { color:'#10B981', bg:'#ECFDF5', border:'#A7F3D0', label:'Easy',   time:120 },
+  medium: { color:'#6366F1', bg:'#EFF6FF', border:'#BFDBFE', label:'Medium', time:180 },
+  hard:   { color:'#F43F5E', bg:'#FFF1F2', border:'#FECDD3', label:'Hard',   time:240 },
 }
 
-export default function LiveInterview() {
+const CHEAT_SEVERITY = {
+  face_missing:    { severity:'medium', msg:'Face not detected — please stay in frame', icon:'👤' },
+  multiple_faces:  { severity:'high',   msg:'Multiple faces detected — no external help allowed', icon:'👥' },
+  looking_away:    { severity:'low',    msg:'Please look at your screen during the interview', icon:'👁️' },
+  tab_switch:      { severity:'high',   msg:'Tab switching detected — stay on this page', icon:'🔀' },
+  window_blur:     { severity:'medium', msg:'Interview window lost focus', icon:'🪟' },
+  copy_paste:      { severity:'high',   msg:'Copy-paste detected — answer in your own words', icon:'📋' },
+  devtools_open:   { severity:'critical',msg:'Browser DevTools detected — this is flagged', icon:'🔧' },
+  phone_detected:  { severity:'high',   msg:'Possible phone usage detected', icon:'📱' },
+}
+
+// ── Warning Banner ─────────────────────────────────────────────────────────────
+function WarningBanner({ event, warningCount, maxWarnings = 3, onDismiss }) {
+  const cfg = CHEAT_SEVERITY[event?.event_type] || { severity:'medium', msg:event?.details || 'Integrity alert', icon:'⚠️' }
+  const colors = {
+    low:      { bg:'#FFFBEB', border:'#FDE68A', text:'#92400E' },
+    medium:   { bg:'#FFF7ED', border:'#FED7AA', text:'#9A3412' },
+    high:     { bg:'#FFF1F2', border:'#FECDD3', text:'#881337' },
+    critical: { bg:'#FFF1F2', border:'#F43F5E', text:'#7F1D1D' },
+  }[cfg.severity]
+  return (
+    <motion.div
+      initial={{ opacity:0, y:-60, scale:0.95 }}
+      animate={{ opacity:1, y:0,   scale:1 }}
+      exit={{   opacity:0, y:-60, scale:0.95 }}
+      transition={{ type:'spring', stiffness:400, damping:30 }}
+      style={{
+        position:'fixed', top:24, left:'50%', transform:'translateX(-50%)',
+        zIndex:1000, width:'min(480px, 90vw)',
+        background:colors.bg, border:`2px solid ${colors.border}`,
+        borderRadius:16, padding:'16px 20px',
+        boxShadow:'0 16px 48px rgba(0,0,0,0.15)',
+      }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
+        <span style={{ fontSize:22, flexShrink:0 }}>{cfg.icon}</span>
+        <div style={{ flex:1 }}>
+          <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:14, color:colors.text, marginBottom:3 }}>
+            ⚠ Integrity Warning {warningCount}/{maxWarnings}
+          </p>
+          <p style={{ fontFamily:"'Inter',sans-serif", fontSize:13, color:colors.text, lineHeight:1.5 }}>
+            {cfg.msg}
+          </p>
+          {warningCount >= maxWarnings - 1 && (
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, color:'#B91C1C', fontWeight:600, marginTop:5 }}>
+              ⚡ One more violation will terminate your session!
+            </p>
+          )}
+          {/* Warning dots */}
+          <div style={{ display:'flex', gap:5, marginTop:8 }}>
+            {[...Array(maxWarnings)].map((_, i) => (
+              <div key={i} style={{
+                width:10, height:10, borderRadius:'50%',
+                background: i < warningCount ? '#EF4444' : '#E5E7EB',
+                transition:'background 0.3s',
+              }}/>
+            ))}
+          </div>
+        </div>
+        <button onClick={onDismiss} style={{ color:colors.text, opacity:0.6, background:'none', border:'none', cursor:'pointer', fontSize:16, padding:0, flexShrink:0 }}>✕</button>
+      </div>
+    </motion.div>
+  )
+}
+// ── Camera Monitor Panel (FIXED & MERGED) ───────────────────────────────────────
+function CameraPanel({ 
+  videoRef, canvasRef, faceStatus, gazeDir, mpReady, 
+  phone, objectLabel, emotion, confidence, lookAwayMs, 
+  cheatingData, warningCount, maxWarnings 
+}) {
+  // Status Colors Logic
+  const STATUS = {
+    ok:            { color:'#10B981', label:'Face OK',       dot:'#10B981' },
+    missing:       { color:'#F43F5E', label:'No Face',       dot:'#F43F5E' },
+    multiple:      { color:'#F59E0B', label:'Multi-Face',    dot:'#F59E0B' },
+    looking_away:  { color:'#F59E0B', label:'Looking Away',  dot:'#F59E0B' },
+    initializing:  { color:'#6366F1', label:'Initializing',  dot:'#6366F1' },
+    error:         { color:'#F43F5E', label:'Detection Error', dot:'#F43F5E' },
+  }[faceStatus] || { color:'#6366F1', label:'Monitoring', dot:'#6366F1' };
+
+  const cheatPct = Math.round((cheatingData?.score || 0) * 100);
+
+  // Advanced status indicators
+  const phoneActive = phone ? { color: '#F43F5E', icon: '📱', label: objectLabel || 'Object' } : null;
+  const emotionSuspicious = emotion && ['fearful','surprised','disgusted'].includes(emotion) ? { color: '#F59E0B', icon: '😨', label: emotion } : null;
+  const longLookAway = lookAwayMs > 2000 ? { color: '#F59E0B', label: `${Math.round(lookAwayMs/1000)}s away` } : null;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+      {/* ── Camera + Canvas Overlay Container ── */}
+      <div style={{ 
+        position:'relative', borderRadius:16, overflow:'hidden', background:'#0F172A',
+        border:`2px solid ${STATUS.color}30`, aspectRatio:'4/3', transition:'border-color 0.4s' 
+      }}>
+        
+        {/* 1. Video Feed */}
+        <video ref={videoRef} autoPlay playsInline muted
+          style={{ width:'100%', height:'100%', objectFit:'cover', transform:'scaleX(-1)' }}/>
+        
+        {/* 2. AI Drawing Layer (Canvas) */}
+        <canvas 
+          ref={canvasRef} 
+          style={{ 
+            position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
+            pointerEvents: 'none', transform: 'scaleX(-1)', zIndex: 10
+          }} 
+        />
+
+        {/* 3. Models Loading Overlay */}
+        {!mpReady && (
+          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:20 }}>
+            <p style={{ color:'white', fontSize:11, fontWeight:600 }}>⚙️ AI MODELS INITIALIZING...</p>
+          </div>
+        )}
+
+        {/* 4. REC Badge */}
+        <div style={{ position:'absolute', top:8, left:8, display:'flex', alignItems:'center', gap:5,
+          padding:'3px 8px', borderRadius:20, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)', zIndex:30 }}>
+          <motion.div animate={{ opacity:[1,0.3,1] }} transition={{ repeat:Infinity, duration:1.5 }}
+            style={{ width:6, height:6, borderRadius:'50%', background:'#F43F5E' }}/>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, color:'white', fontWeight:600 }}>REC</span>
+        </div>
+
+        {/* 5. Bottom Status Badges */}
+        <div style={{ position:'absolute', bottom:8, left:8, right:8, display:'flex', alignItems:'center', justifyContent:'space-between', gap:4, flexWrap:'wrap', zIndex:30 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 8px', borderRadius:20, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)' }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:STATUS.dot, boxShadow:`0 0 6px ${STATUS.dot}` }}/>
+            <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, color:'white', fontWeight:600 }}>{STATUS.label}</span>
+          </div>
+          
+          {phoneActive && (
+            <div style={{ padding:'3px 8px', borderRadius:20, background:phoneActive.color + 'CC', backdropFilter:'blur(4px)' }}>
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, color:'white', fontWeight:600 }}>{phoneActive.icon} {phoneActive.label}</span>
+            </div>
+          )}
+          
+          {gazeDir !== 'center' && !longLookAway && (
+            <div style={{ padding:'3px 8px', borderRadius:20, background:'rgba(245,158,11,0.8)', backdropFilter:'blur(4px)' }}>
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, color:'white', fontWeight:600 }}>LOOKING {gazeDir.toUpperCase()}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Integrity Score & Warnings ── */}
+      <div style={{ 
+        padding:'10px 14px', borderRadius:12, 
+        background: cheatPct > 50 ? '#FFF1F2' : cheatPct > 20 ? '#FFFBEB' : '#ECFDF5',
+        border:`1px solid ${cheatPct > 50 ? '#FECDD3' : cheatPct > 20 ? '#FDE68A' : '#A7F3D0'}` 
+      }}>
+        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+          <span style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:600, color:'#475569' }}>Session Integrity</span>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, fontWeight:700, color: cheatPct > 50 ? '#F43F5E' : cheatPct > 20 ? '#F59E0B' : '#10B981' }}>
+            {warningCount}/{maxWarnings} warnings
+          </span>
+        </div>
+        
+        <div style={{ display:'flex', gap:4, marginBottom:4 }}>
+          <div style={{ flex:1, height:5, background:'#E2E8F0', borderRadius:3, overflow:'hidden' }}>
+            <div style={{ 
+              height:'100%', borderRadius:3, width: `${Math.max(0, confidence * 100)}%`, 
+              background: confidence > 0.8 ? '#10B981' : confidence > 0.6 ? '#F59E0B' : '#F43F5E',
+              transition:'width 0.6s ease' 
+            }}/>
+          </div>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, color:'#94A3B8' }}>{Math.round(confidence*100)}%</span>
+        </div>
+
+        <div style={{ display:'flex', gap:5 }}>
+          {[...Array(maxWarnings)].map((_, i) => (
+            <div key={i} style={{ flex:1, height:4, borderRadius:100, transition:'background 0.3s', background: i < warningCount ? '#F43F5E' : '#E2E8F0' }}/>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Answer Input ───────────────────────────────────────────────────────────────
+function AnswerInput({ value, onChange, onSubmit, loading, questionTimer, diffCfg, sttHook }) {
+  const timeLimit = diffCfg?.time || 180
+  const pct = Math.min(100, (questionTimer / timeLimit) * 100)
+  const urgent = questionTimer > timeLimit * 0.8
+  const timerColor = urgent ? '#F43F5E' : questionTimer > timeLimit * 0.6 ? '#F59E0B' : '#6366F1'
+
+  return (
+    <div style={{ background:'white', borderRadius:20, border:'1px solid #E2E8F0', overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}>
+      {/* Timer bar */}
+      <div style={{ height:3, background:'#F1F5F9' }}>
+        <motion.div animate={{ width:`${Math.max(0, 100 - pct)}%` }} transition={{ duration:1, ease:'linear' }}
+          style={{ height:'100%', background:timerColor, borderRadius:100 }}/>
+      </div>
+
+      <div style={{ padding:'14px 16px 8px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <span style={{ fontFamily:"'Inter',sans-serif", fontSize:12, fontWeight:600, color:'#64748B' }}>Your Answer</span>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:13, fontWeight:700, color:timerColor }}>
+            {fmt(Math.max(0, timeLimit - questionTimer))}
+          </span>
+          <span style={{ fontFamily:"'Inter',sans-serif", fontSize:11, color:'#94A3B8' }}>{value.length} chars · Ctrl+Enter</span>
+        </div>
+      </div>
+
+      {/* Voice transcript badge */}
+      {sttHook?.listening && sttHook?.transcript && (
+        <div style={{ margin:'0 16px 8px', padding:'8px 12px', borderRadius:10, background:'#EFF6FF', border:'1px solid #BFDBFE' }}>
+          <p style={{ fontFamily:"'Inter',sans-serif", fontSize:12, color:'#1D4ED8', fontStyle:'italic' }}>
+            🎤 "{sttHook.transcript}"
+          </p>
+        </div>
+      )}
+
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="Type your answer here... Be specific and use examples. Structure your response clearly.&#10;&#10;For behavioral questions, use the STAR method:&#10;Situation → Task → Action → Result"
+        rows={9}
+        style={{
+          width:'100%', padding:'12px 16px', border:'none', outline:'none',
+          fontFamily:"'Inter',system-ui,sans-serif", fontSize:14, color:'#1E293B',
+          lineHeight:1.75, resize:'none', background:'transparent',
+          boxSizing:'border-box',
+        }}
+      />
+
+      {/* Controls */}
+      <div style={{ padding:'10px 16px 14px', borderTop:'1px solid #F1F5F9', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+        <div style={{ display:'flex', gap:8 }}>
+          {/* Voice input button */}
+          {sttHook?.supported && (
+            <button
+              type="button"
+              onClick={sttHook.toggleListening}
+              style={{
+                display:'flex', alignItems:'center', gap:6, padding:'7px 14px',
+                borderRadius:10, border:`1.5px solid ${sttHook.listening ? '#FECDD3' : '#E2E8F0'}`,
+                background: sttHook.listening ? '#FFF1F2' : 'white',
+                color: sttHook.listening ? '#DC2626' : '#64748B',
+                fontFamily:"'Inter',sans-serif", fontSize:12, fontWeight:600, cursor:'pointer',
+                transition:'all 0.2s',
+              }}>
+              {sttHook.listening ? (
+                <>
+                  <motion.div animate={{ scale:[1,1.3,1] }} transition={{ repeat:Infinity, duration:0.8 }}
+                    style={{ width:8, height:8, borderRadius:'50%', background:'#DC2626' }}/>
+                  Stop Recording
+                </>
+              ) : (
+                <><span>🎤</span> Voice Input</>
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { onChange(''); sttHook?.resetTranscript?.() }}
+            style={{ padding:'7px 14px', borderRadius:10, border:'1.5px solid #E2E8F0',
+              background:'white', color:'#94A3B8', fontSize:12, fontFamily:"'Inter',sans-serif", cursor:'pointer' }}>
+            Clear
+          </button>
+        </div>
+
+        <button
+          onClick={() => onSubmit({ answerText: value, answerSource: sttHook?.listening ? 'voice' : 'text' })}
+          disabled={loading || value.trim().length < 5}
+          style={{
+            display:'flex', alignItems:'center', gap:8, padding:'9px 22px',
+            borderRadius:12, border:'none', cursor: loading || value.trim().length < 5 ? 'not-allowed' : 'pointer',
+            fontFamily:"'Sora',sans-serif", fontWeight:600, fontSize:14, color:'white',
+            background: loading ? '#94A3B8' : 'linear-gradient(135deg,#1565C0,#2196F3)',
+            boxShadow: loading ? 'none' : '0 3px 10px rgba(21,101,192,0.35)',
+            transition:'all 0.2s', opacity: value.trim().length < 5 ? 0.6 : 1,
+          }}>
+          {loading ? (
+            <>
+              <svg style={{ width:15, height:15 }} className="animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle style={{ opacity:0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path style={{ opacity:0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              AI Evaluating...
+            </>
+          ) : 'Submit Answer →'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════
+// MAIN PAGE
+// ════════════════════════════════════════════════════════════════
+const MAX_WARNINGS = 3
+
+export default function LiveInterviewV2() {
   const navigate = useNavigate()
-  const location = useLocation()
 
-  // ── State ────────────────────────────────────────────────────────────────
-  const [phase, setPhase] = useState(PHASE.SETUP)
-  const [resumes, setResumes] = useState([])
-  const [config, setConfig] = useState({ resume_id: '', job_title: '', difficulty: 'medium', interview_type: 'mixed', num_questions: 8 })
-  const [session, setSession] = useState(null)           // { session_id, questions, session_metadata }
-  const [currentQIdx, setCurrentQIdx] = useState(0)
-  const [answers, setAnswers] = useState([])             // [{ question, answer, time_taken, feedback }]
-  const [currentAnswer, setCurrentAnswer] = useState('')
-  const [currentFeedback, setCurrentFeedback] = useState(null)
-  const [cheatingEvents, setCheatingEvents] = useState([])
-  const [generating, setGenerating] = useState(false)
-  const [evaluating, setEvaluating] = useState(false)
-  const [timeUp, setTimeUp] = useState(false)
-  const [timerKey, setTimerKey] = useState(0)
-  const [sessionStartTime, setSessionStartTime] = useState(null)
-  const [questionStartTime, setQuestionStartTime] = useState(null)
-  const [totalScore, setTotalScore] = useState(0)
-  const [totalPoints, setTotalPoints] = useState(0)
-  const [showCamera, setShowCamera] = useState(true)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const textareaRef = useRef(null)
+  // Session management
+  const session = useInterviewSession()
 
-  // Load resumes
-  useEffect(() => {
-    getResumes({ page_size: 20 })
-      .then(r => setResumes((r.data.resumes || []).filter(r => r.status === 'parsed')))
-      .catch(() => {})
+  // Camera
+  const videoRef     = useRef(null)
+  const streamRef    = useRef(null)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [cameraError, setCameraError] = useState(null)
+
+  // Answer input
+  const [answerText, setAnswerText] = useState('')
+
+  // Warning system
+  const [currentWarning, setCurrentWarning] = useState(null)
+  const warningTimerRef = useRef(null)
+
+  // STT via useSpeech hook
+  const stt = useSpeechToText({
+    onFinalTranscript: (text) => setAnswerText(prev => prev + (prev ? ' ' : '') + text),
+  })
+
+  // ── Advanced AI detection (4 layers) ──
+  const canvasRef = useRef(null)
+  const advDetection = useAdvancedDetection({
+    videoRef,
+    canvasRef,
+    onEvent: handleCheatingEvent,
+    active: session.phase === SESSION_PHASE.ACTIVE,
+  })
+
+  // Destructure everything including faceCount
+  const { 
+    faceStatus, 
+    faceCount, 
+    gazeDir, 
+    mpReady, 
+    phone, 
+    objectLabel, 
+    emotion, 
+    confidence, 
+    lookAwayMs 
+  } = advDetection
+
+  // ── Camera start ────────────────────────────────────────────────────────────
+  const startCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width:{ ideal:640 }, height:{ ideal:480 }, facingMode:'user' },
+        audio: false,
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.onloadedmetadata = () => { videoRef.current.play(); setCameraReady(true) }
+      }
+    } catch (e) {
+      setCameraError(e.message.includes('Permission') ? 'Camera permission denied' : 'Camera unavailable')
+    }
   }, [])
 
-  // Pre-fill from navigation state
-  useEffect(() => {
-    if (location.state?.resume_id) setConfig(c => ({ ...c, resume_id: location.state.resume_id }))
-    if (location.state?.job_title) setConfig(c => ({ ...c, job_title: location.state.job_title }))
-  }, [location.state])
-
-  const currentQ = session?.questions?.[currentQIdx]
-  const totalQ = session?.questions?.length || 0
-  const isLastQ = currentQIdx >= totalQ - 1
-  const progressPct = totalQ > 0 ? Math.round(((currentQIdx + (phase === PHASE.FEEDBACK ? 1 : 0)) / totalQ) * 100) : 0
-  const diffCfg = DIFF_CFG[config.difficulty] || DIFF_CFG.medium
-
-  // ── Add cheating event ────────────────────────────────────────────────────
-  const handleCheatingEvent = useCallback((event) => {
-    setCheatingEvents(prev => [...prev, event])
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setCameraReady(false)
   }, [])
 
-  // ── Start Session ─────────────────────────────────────────────────────────
-  const startGeneration = async () => {
-    if (!config.resume_id) { toast.error('Select a parsed resume first'); return }
-    setGenerating(true)
-    try {
-      const { data } = await generateAIInterview({
-        resume_id: config.resume_id,
-        job_title: config.job_title || 'Software Engineer',
-        difficulty: config.difficulty,
-        interview_type: config.interview_type,
-        num_questions: parseInt(config.num_questions),
-      })
-      setSession(data)
-      toast.success(`${data.questions?.length} questions generated!`, { icon: '🤖' })
-      setPhase(PHASE.BRIEFING)
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Generation failed')
-    } finally { setGenerating(false) }
-  }
-
-  const beginInterview = () => {
-    setPhase(PHASE.ANSWERING)
-    setCurrentQIdx(0)
-    setTimerKey(k => k + 1)
-    setSessionStartTime(Date.now())
-    setQuestionStartTime(Date.now())
-    textareaRef.current?.focus()
-  }
-
-  // ── Submit Answer ─────────────────────────────────────────────────────────
-  const submitAnswer = useCallback(async (auto = false) => {
-    if (!currentQ) return
-    if (!auto && currentAnswer.trim().length < 5) { toast.error('Please provide a more detailed answer'); return }
-
-    const timeTaken = questionStartTime ? Math.round((Date.now() - questionStartTime) / 1000) : 0
-    const answerText = auto && !currentAnswer.trim() ? '[No answer provided — time expired]' : currentAnswer
-
-    setPhase(PHASE.FEEDBACK)
-    setEvaluating(true)
-
-    try {
-      const feedbackData = await evaluateAnswer({
-        question: currentQ.question,
-        user_answer: answerText,
-        ideal_answer: currentQ.ideal_answer || '',
-        question_type: currentQ.type,
-        difficulty: currentQ.difficulty || config.difficulty,
-        time_taken_seconds: timeTaken,
-      })
-
-      const result = { question: currentQ.question, answer: answerText, time_taken: timeTaken, feedback: feedbackData.data || feedbackData }
-      setAnswers(prev => [...prev, result])
-      setCurrentFeedback(feedbackData.data || feedbackData)
-      setTotalScore(prev => prev + (feedbackData.data?.score || feedbackData.score || 0))
-      setTotalPoints(prev => prev + (feedbackData.data?.points_earned || feedbackData.points_earned || 0))
-    } catch (err) {
-      toast.error('Feedback generation failed')
-      setCurrentFeedback({ score: 0, detailed_feedback: 'Evaluation unavailable', strengths: [], weaknesses: [] })
-    } finally { setEvaluating(false) }
-  }, [currentAnswer, currentQ, questionStartTime, config.difficulty])
-
-  const nextQuestion = useCallback(async () => {
-    if (isLastQ) {
-      await endSession()
-    } else {
-      setCurrentQIdx(i => i + 1)
-      setCurrentAnswer('')
-      setCurrentFeedback(null)
-      setTimeUp(false)
-      setTimerKey(k => k + 1)
-      setQuestionStartTime(Date.now())
-      setPhase(PHASE.ANSWERING)
-      setTimeout(() => textareaRef.current?.focus(), 100)
-    }
-  }, [isLastQ])
-
-  const endSession = useCallback(async () => {
-    setPhase(PHASE.COMPLETE)
-    const avgScore = answers.length > 0 ? totalScore / answers.length : 0
-
-    // Submit cheating report
-    if (cheatingEvents.length > 0 && session?.session_id) {
-      await submitCheatingReport({ session_id: session.session_id, events: cheatingEvents }).catch(() => {})
-    }
-
-    // Award gamification points
-    if (session?.session_id) {
-      await completeInterviewSession({
-        session_id: session.session_id,
-        interview_score: avgScore / 10,
-        questions_answered: answers.length,
-        clean_session: cheatingEvents.length === 0,
-      }).catch(() => {})
-    }
-  }, [answers, totalScore, cheatingEvents, session])
-
-  const handleTimerExpire = useCallback(() => {
-    setTimeUp(true)
-    toast('⏰ Time\'s up! Auto-submitting...', { duration: 2000 })
-    setTimeout(() => submitAnswer(true), 1500)
-  }, [submitAnswer])
-
-  // Keyboard shortcut: Ctrl+Enter to submit
   useEffect(() => {
-    const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && phase === PHASE.ANSWERING) {
+    if (session.phase !== SESSION_PHASE.SETUP) startCamera()
+    return () => { if (session.phase === SESSION_PHASE.SETUP) stopCamera() }
+  }, [session.phase])
+
+// ── Sync Canvas Resolution ──
+  useEffect(() => {
+    const syncCanvas = () => {
+      if (videoRef.current && canvasRef.current) {
+        canvasRef.current.width = videoRef.current.videoWidth;
+        canvasRef.current.height = videoRef.current.videoHeight;
+      }
+    };
+    videoRef.current?.addEventListener('loadedmetadata', syncCanvas);
+    if (videoRef.current?.readyState >= 2) syncCanvas();
+    
+    return () => videoRef.current?.removeEventListener('loadedmetadata', syncCanvas);
+  }, [cameraReady, mpReady]); // Added mpReady as dependency
+
+  useEffect(() => () => stopCamera(), [])
+
+  // ── Browser event detectors ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (session.phase !== SESSION_PHASE.ACTIVE) return
+
+    const onHide  = () => { if (document.hidden) handleCheatingEvent({ event_type:'tab_switch', severity:'high', details:'Tab switched' }) }
+    const onBlur  = () => handleCheatingEvent({ event_type:'window_blur', severity:'medium', details:'Window blurred' })
+    const onPaste = e => {
+      const txt = e.clipboardData?.getData('text') || ''
+      if (txt.length > 15) handleCheatingEvent({ event_type:'copy_paste', severity:'high', details:`${txt.length} chars pasted` })
+    }
+    const checkDevTools = () => {
+      if (window.outerWidth - window.innerWidth > 150 || window.outerHeight - window.innerHeight > 150) {
+        handleCheatingEvent({ event_type:'devtools_open', severity:'critical', details:'DevTools detected' })
+      }
+    }
+
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('blur', onBlur)
+    document.addEventListener('paste', onPaste)
+    const devInterval = setInterval(checkDevTools, 3000)
+
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('blur', onBlur)
+      document.removeEventListener('paste', onPaste)
+      clearInterval(devInterval)
+    }
+  }, [session.phase])
+
+  // ── Cheating event handler ──────────────────────────────────────────────────
+  function handleCheatingEvent(event) {
+    session.recordCheatingEvent(event)
+    // Show warning banner
+    setCurrentWarning(event)
+    clearTimeout(warningTimerRef.current)
+    warningTimerRef.current = setTimeout(() => setCurrentWarning(null), 6000)
+  }
+
+  // ── Answer submit ────────────────────────────────────────────────────────────
+  const handleSubmitAnswer = useCallback(async ({ answerText: text, answerSource }) => {
+    await session.submitAnswer({ answerText: text, answerSource })
+    setAnswerText('')
+    stt.resetTranscript?.()
+  }, [session, stt])
+
+  // ── Ctrl+Enter shortcut ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && session.phase === SESSION_PHASE.ACTIVE) {
         e.preventDefault()
-        submitAnswer()
+        handleSubmitAnswer({ answerText, answerSource: 'text' })
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [phase, submitAnswer])
+  }, [answerText, session.phase, handleSubmitAnswer])
 
-  const avgScore = answers.length > 0 ? totalScore / answers.length : 0
+  // ── Keyboard for Briefing → Start ────────────────────────────────────────────
+  useEffect(() => {
+    const handler = e => {
+      if (e.key === 'Enter' && session.phase === SESSION_PHASE.BRIEFING) session.startSession()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [session.phase])
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // RENDER: SETUP
-  // ═══════════════════════════════════════════════════════════════════════
-  if (phase === PHASE.SETUP) {
-    return (
-      <div className="max-w-4xl mx-auto space-y-6 pb-8">
-        {/* Hero */}
-        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}
-          className="relative rounded-3xl overflow-hidden p-8"
-          style={{ background: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 50%, #4338CA 100%)' }}>
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.3) 1px, transparent 0)', backgroundSize: '28px 28px' }}/>
-          <div className="relative flex items-center justify-between flex-wrap gap-6">
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"/>
-                <span className="font-mono text-indigo-300 text-xs tracking-widest uppercase">AI Interview Studio</span>
-              </div>
-              <h1 className="font-sora font-bold text-white text-4xl leading-tight mb-2">Live AI Interview</h1>
-              <p className="text-indigo-200 text-sm font-body max-w-md">Real-time question generation · Instant AI feedback · Integrity monitoring · Gamification rewards</p>
-            </div>
-            <div className="hidden md:flex items-center gap-4">
-              {['🤖 AI Powered', '📷 Camera Monitor', '🏆 Earn Points', '⚡ Instant Feedback'].map((tag, i) => (
-                <div key={i} className="text-xs font-mono text-indigo-300 flex items-center gap-1.5">{tag}</div>
-              ))}
-            </div>
-          </div>
-        </motion.div>
+  const diffCfg = DIFF_CONFIG[session.config?.difficulty] || DIFF_CONFIG.medium
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Config form */}
-          <motion.div initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }}
-            className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
-            <div className="flex items-center gap-2 pb-4 border-b border-slate-100">
-              <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 text-sm">⚙️</div>
-              <h2 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 17, color: '#0F172A' }}>Interview Setup</h2>
-            </div>
-
-            {/* Resume */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">Resume</label>
-              {resumes.length === 0 ? (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700 font-body">
-                  ⚠ Upload and parse a resume first
-                </div>
-              ) : (
-                <select className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 text-sm font-body outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
-                  value={config.resume_id} onChange={e => setConfig(c => ({ ...c, resume_id: e.target.value }))}>
-                  <option value="">— Select a parsed resume —</option>
-                  {resumes.map(r => <option key={r.id} value={r.id}>{r.original_filename}</option>)}
-                </select>
-              )}
-            </div>
-
-            {/* Job Title */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">Target Role</label>
-              <input className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 text-sm font-body outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
-                placeholder="e.g. Senior Backend Engineer" value={config.job_title}
-                onChange={e => setConfig(c => ({ ...c, job_title: e.target.value }))}/>
-            </div>
-
-            {/* Interview Type */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">Interview Type</label>
-              <select className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 text-sm font-body outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
-                value={config.interview_type} onChange={e => setConfig(c => ({ ...c, interview_type: e.target.value }))}>
-                <option value="mixed">Mixed — Technical + Behavioral + Situational</option>
-                <option value="technical">Technical Only — Deep skills assessment</option>
-                <option value="behavioral">Behavioral — STAR method focus</option>
-                <option value="situational">Situational — Problem-solving scenarios</option>
-              </select>
-            </div>
-
-            {/* Difficulty */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">Difficulty</label>
-              <div className="grid grid-cols-3 gap-3">
-                {['easy', 'medium', 'hard'].map(d => {
-                  const dc = DIFF_CFG[d]
-                  return (
-                    <button key={d} type="button"
-                      onClick={() => setConfig(c => ({ ...c, difficulty: d }))}
-                      className="py-3 rounded-xl border-2 text-sm font-bold capitalize transition-all"
-                      style={{
-                        borderColor: config.difficulty === d ? dc.color : '#E2E8F0',
-                        background: config.difficulty === d ? dc.bg : 'white',
-                        color: config.difficulty === d ? dc.color : '#94A3B8',
-                        boxShadow: config.difficulty === d ? `0 0 0 3px ${dc.color}15` : 'none',
-                      }}>
-                      {d === 'easy' ? '🟢' : d === 'medium' ? '🟡' : '🔴'} {dc.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Questions count */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">Questions: {config.num_questions}</label>
-              <input type="range" min="5" max="20" step="1" value={config.num_questions}
-                onChange={e => setConfig(c => ({ ...c, num_questions: parseInt(e.target.value) }))}
-                className="w-full accent-indigo-500 cursor-pointer"/>
-              <div className="flex justify-between text-2xs font-mono text-slate-400 mt-1">
-                <span>5 (~25min)</span><span>10 (~50min)</span><span>15 (~75min)</span><span>20 (~100min)</span>
-              </div>
-            </div>
-
-            {/* Camera toggle */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-              <div>
-                <p className="text-sm font-semibold text-slate-700 font-body">Camera Monitoring</p>
-                <p className="text-xs text-slate-400 font-body mt-0.5">Enable for integrity tracking and anti-cheating</p>
-              </div>
-              <label className="relative cursor-pointer">
-                <input type="checkbox" checked={showCamera} onChange={e => setShowCamera(e.target.checked)} className="sr-only peer"/>
-                <div className="w-11 h-6 bg-slate-300 peer-checked:bg-indigo-500 rounded-full transition-colors"/>
-                <div className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"/>
-              </label>
-            </div>
-
-            <button onClick={startGeneration} disabled={generating || resumes.length === 0}
-              className="w-full py-3.5 rounded-2xl text-white font-bold text-base transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5 active:translate-y-0"
-              style={{ background: generating ? '#94A3B8' : 'linear-gradient(135deg, #4F46E5, #7C3AED)', boxShadow: generating ? 'none' : '0 4px 16px rgba(79,70,229,0.35)' }}>
-              {generating ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                  AI is crafting your interview...
-                </span>
-              ) : '🤖 Generate AI Interview →'}
-            </button>
-          </motion.div>
-
-          {/* Info panel */}
-          <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 }}
-            className="space-y-4">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-              <h3 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 15, color: '#1E293B', marginBottom: 12 }}>What to Expect</h3>
-              {[
-                { icon: '🤖', title: 'AI-Powered Questions', desc: 'Generated by LLM based on your resume and target role' },
-                { icon: '📷', title: 'Camera Monitoring', desc: 'Face detection and presence tracking throughout' },
-                { icon: '⚡', title: 'Instant Feedback', desc: 'AI evaluates each answer in real-time with score' },
-                { icon: '🏆', title: 'Earn Rewards', desc: 'Points, badges, and leaderboard rankings' },
-                { icon: '⏱', title: 'Timed Questions', desc: `${DIFF_CFG[config.difficulty].time}s per question at ${config.difficulty} difficulty` },
-              ].map(({ icon, title, desc }) => (
-                <div key={title} className="flex items-start gap-3 mb-3 last:mb-0">
-                  <span className="text-lg shrink-0">{icon}</span>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-700 font-body">{title}</p>
-                    <p className="text-xs text-slate-400 font-body mt-0.5">{desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-indigo-50 rounded-2xl border border-indigo-100 p-4">
-              <p className="text-xs font-bold text-indigo-700 font-mono uppercase tracking-wide mb-2">💡 Pro Tips</p>
-              {['Speak clearly and structure your answers', 'Use STAR method for behavioral questions', 'Think out loud during technical problems', 'Keep camera centered and well-lit'].map((tip, i) => (
-                <p key={i} className="text-xs text-indigo-600 font-body flex items-start gap-1.5 mb-1.5 last:mb-0">
-                  <span className="text-indigo-400 shrink-0 mt-0.5">→</span>{tip}
-                </p>
-              ))}
-            </div>
-          </motion.div>
-        </div>
-      </div>
-    )
+  // ════════════════════════════════════════════════════════════════
+  // PHASE: SETUP
+  // ════════════════════════════════════════════════════════════════
+  if (session.phase === SESSION_PHASE.SETUP) {
+    return <SetupScreen onStart={session.createSession} loading={session.loading}/>
   }
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // RENDER: BRIEFING
-  // ═══════════════════════════════════════════════════════════════════════
-  if (phase === PHASE.BRIEFING) {
-    const meta = session?.session_metadata || {}
+  // ════════════════════════════════════════════════════════════════
+  // PHASE: BRIEFING
+  // ════════════════════════════════════════════════════════════════
+  if (session.phase === SESSION_PHASE.BRIEFING) {
     return (
-      <div className="max-w-2xl mx-auto space-y-6 pb-8">
-        <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
-          className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+      <div style={{ maxWidth:680, margin:'0 auto', padding:'24px 16px' }}>
+        <motion.div initial={{ opacity:0, scale:0.96 }} animate={{ opacity:1, scale:1 }}
+          transition={{ duration:0.5, ease:[0.16,1,0.3,1] }}
+          style={{ background:'white', borderRadius:24, border:'1px solid #E2E8F0', boxShadow:'0 16px 48px rgba(0,0,0,0.10)', overflow:'hidden' }}>
+
           {/* Header */}
-          <div className="p-8 text-center" style={{ background: 'linear-gradient(135deg, #EEF2FF, #F8F9FC)' }}>
-            <div className="w-16 h-16 rounded-3xl bg-indigo-600 flex items-center justify-center text-3xl mx-auto mb-5 shadow-lg"
-              style={{ boxShadow: '0 8px 24px rgba(79,70,229,0.35)' }}>🤖</div>
-            <h2 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 28, color: '#1E293B', marginBottom: 8 }}>
-              Your Interview is Ready
+          <div style={{ padding:'36px 36px 28px', textAlign:'center',
+            background:'linear-gradient(135deg,#EFF6FF 0%,#F8FAFC 50%,#EFF6FF 100%)' }}>
+            <motion.div animate={{ y:[0,-8,0] }} transition={{ repeat:Infinity, duration:3, ease:'easeInOut' }}
+              style={{ fontSize:52, marginBottom:16 }}>🤖</motion.div>
+            <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:26, color:'#0F172A', marginBottom:8 }}>
+              Interview Ready
             </h2>
-            <p className="text-slate-500 font-body text-sm max-w-sm mx-auto">
-              {meta.total_questions} AI-crafted questions for {meta.job_title}. Take a moment to compose yourself before we begin.
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:14, color:'#64748B' }}>
+              <strong>{session.session?.total_questions}</strong> AI-crafted questions for{' '}
+              <strong>{session.config?.job_title}</strong>
             </p>
           </div>
 
-          <div className="p-8 space-y-5">
+          <div style={{ padding:'28px 36px' }}>
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4">
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:24 }}>
               {[
-                { icon: '❓', label: 'Questions', value: meta.total_questions || session?.questions?.length || 0 },
-                { icon: '⏱', label: 'Per Question', value: `${diffCfg.time}s` },
-                { icon: '🏆', label: 'Max Points', value: `~${(meta.total_questions || 10) * 20}` },
-              ].map(({ icon, label, value }) => (
-                <div key={label} className="text-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="text-2xl mb-1">{icon}</div>
-                  <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 22, color: '#1E293B' }}>{value}</div>
-                  <div className="text-xs text-slate-400 font-mono mt-0.5">{label}</div>
+                { icon:'❓', label:'Questions', val:session.session?.total_questions },
+                { icon:'⏱',  label:'Per Question', val:`${diffCfg.time}s` },
+                { icon:'⚠',  label:'Max Warnings', val:MAX_WARNINGS },
+              ].map(({ icon, label, val }) => (
+                <div key={label} style={{ textAlign:'center', padding:'14px 8px', background:'#F8FAFC', borderRadius:14, border:'1px solid #E2E8F0' }}>
+                  <div style={{ fontSize:24, marginBottom:4 }}>{icon}</div>
+                  <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:20, color:'#1E293B', lineHeight:1 }}>{val}</p>
+                  <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, color:'#94A3B8', marginTop:2 }}>{label}</p>
                 </div>
               ))}
             </div>
 
+            {/* Camera preview */}
+            <div style={{ marginBottom:20 }}>
+              <p style={{ fontFamily:"'Inter',sans-serif", fontSize:12, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Camera Preview</p>
+              <div style={{ borderRadius:14, overflow:'hidden', background:'#0F172A', aspectRatio:'16/9', maxHeight:180, position:'relative', border:'2px solid #E2E8F0' }}>
+                {cameraReady ? (
+                  <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', height:'100%', objectFit:'cover', transform:'scaleX(-1)' }}/>
+                ) : (
+                  <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:8 }}>
+                    {cameraError ? (
+                      <>
+                        <span style={{ fontSize:28 }}>📷</span>
+                        <p style={{ fontFamily:"'Inter',sans-serif", fontSize:12, color:'#94A3B8', textAlign:'center', padding:'0 16px' }}>{cameraError}</p>
+                        <button onClick={startCamera} style={{ padding:'6px 16px', borderRadius:8, background:'#6366F1', color:'white', border:'none', cursor:'pointer', fontSize:12, fontFamily:"'Inter',sans-serif" }}>
+                          Retry Camera
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ width:24, height:24, borderRadius:'50%', border:'3px solid #6366F1', borderTopColor:'transparent' }} className="animate-spin"/>
+                        <p style={{ fontFamily:"'Inter',sans-serif", fontSize:12, color:'#94A3B8' }}>Starting camera...</p>
+                      </>
+                    )}
+                  </div>
+                )}
+                {cameraReady && (
+                  <div style={{ position:'absolute', bottom:8, left:8, display:'flex', alignItems:'center', gap:5, padding:'3px 8px', borderRadius:20, background:'rgba(0,0,0,0.6)' }}>
+                    <motion.div animate={{ opacity:[1,0.3,1] }} transition={{ repeat:Infinity, duration:1.5 }} style={{ width:5, height:5, borderRadius:'50%', background:'#10B981' }}/>
+                    <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, color:'white' }}>CAMERA OK</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Rules */}
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
-              <p className="text-xs font-bold text-amber-700 font-mono uppercase tracking-wide mb-2">📋 Interview Rules</p>
+            <div style={{ padding:'14px 16px', borderRadius:14, background:'#FFFBEB', border:'1px solid #FDE68A', marginBottom:24 }}>
+              <p style={{ fontFamily:"'Inter',sans-serif", fontSize:12, fontWeight:700, color:'#92400E', marginBottom:10 }}>📋 Interview Rules</p>
               {[
-                'Stay in this window — tab switches are monitored',
-                'Keep your face visible in the camera at all times',
-                'No copy-pasting from external sources',
-                'Press Ctrl+Enter to submit your answer',
-                'You can pass any question if you\'re stuck',
-              ].map((rule, i) => (
-                <p key={i} className="text-xs text-amber-700 font-body flex items-start gap-2 mb-1 last:mb-0">
-                  <span className="shrink-0">{i + 1}.</span>{rule}
+                `Stay in this window — tab switches are monitored`,
+                `Keep your face visible in the camera at all times`,
+                `${MAX_WARNINGS} warnings → automatic session termination`,
+                `You can reattempt each question once`,
+                `Press Ctrl+Enter to submit your answer quickly`,
+              ].map((r, i) => (
+                <p key={i} style={{ fontFamily:"'Inter',sans-serif", fontSize:12, color:'#92400E', display:'flex', gap:8, marginBottom:5 }}>
+                  <span style={{ flexShrink:0 }}>{i+1}.</span>{r}
                 </p>
               ))}
             </div>
 
-            {/* Question preview */}
-            <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100">
-              <p className="text-xs font-bold text-indigo-600 font-mono uppercase tracking-wide mb-2">📝 First Question Preview</p>
-              <p className="text-sm text-indigo-800 font-body leading-relaxed">
-                {session?.questions?.[0]?.question || 'Question will appear when you begin...'}
-              </p>
-            </div>
-
-            <button onClick={beginInterview}
-              className="w-full py-4 rounded-2xl text-white font-bold text-base transition-all hover:-translate-y-0.5 active:translate-y-0"
-              style={{ background: 'linear-gradient(135deg, #4F46E5, #7C3AED)', boxShadow: '0 4px 20px rgba(79,70,229,0.4)' }}>
-              🚀 Start Interview Now
+            <button onClick={session.startSession}
+              style={{
+                width:'100%', padding:'15px 0', borderRadius:14, border:'none',
+                fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:16, color:'white', cursor:'pointer',
+                background:'linear-gradient(135deg,#1565C0 0%,#1976D2 50%,#2196F3 100%)',
+                boxShadow:'0 4px 16px rgba(21,101,192,0.4)',
+              }}>
+              🚀 Begin Interview
             </button>
-            <button onClick={() => setPhase(PHASE.SETUP)} className="w-full py-2.5 rounded-xl text-slate-500 text-sm hover:text-slate-700 hover:bg-slate-50 transition-all font-body">
-              ← Back to Setup
-            </button>
+            <p style={{ textAlign:'center', fontFamily:"'Inter',sans-serif", fontSize:12, color:'#94A3B8', marginTop:8 }}>
+              Press Enter to start
+            </p>
           </div>
         </motion.div>
       </div>
     )
   }
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // RENDER: ANSWERING / FEEDBACK
-  // ═══════════════════════════════════════════════════════════════════════
-  if (phase === PHASE.ANSWERING || phase === PHASE.FEEDBACK) {
+  // ════════════════════════════════════════════════════════════════
+  // PHASE: REPORT
+  // ════════════════════════════════════════════════════════════════
+  if (session.phase === SESSION_PHASE.REPORT) {
     return (
-      <div className="h-screen flex overflow-hidden bg-slate-50" style={{ paddingTop: 0, margin: -24 }}>
-        {/* ── Sidebar ── */}
-        <AnimatePresence>
-          {sidebarOpen && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }} animate={{ width: 280, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-hidden"
-            >
-              {/* Session info */}
-              <div className="p-4 border-b border-slate-100">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"/>
-                  <span className="text-xs font-mono font-bold text-slate-600 uppercase tracking-wider">Live Session</span>
-                </div>
-                <p className="font-sora font-bold text-slate-800 text-sm leading-tight">
-                  {session?.session_metadata?.job_title || 'Interview'}
-                </p>
-                <p className="text-xs text-slate-400 font-mono mt-1">
-                  Q{currentQIdx + 1} of {totalQ} · {config.difficulty}
-                </p>
-                {/* Progress bar */}
-                <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <motion.div
-                    animate={{ width: `${progressPct}%` }}
-                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                    className="h-full rounded-full bg-indigo-500"
-                  />
-                </div>
-                <p className="text-xs font-mono text-slate-400 mt-1">{progressPct}% complete</p>
-              </div>
-
-              {/* Timer */}
-              {phase === PHASE.ANSWERING && (
-                <div className="p-4 border-b border-slate-100 flex justify-center">
-                  <Timer
-                    key={timerKey}
-                    seconds={diffCfg.time}
-                    autoStart
-                    onExpire={handleTimerExpire}
-                    size="md"
-                  />
-                </div>
-              )}
-
-              {/* Camera */}
-              {showCamera && (
-                <div className="p-3 border-b border-slate-100">
-                  <CameraPreview onEvent={handleCheatingEvent} compact/>
-                </div>
-              )}
-
-              {/* Integrity / Cheating monitor */}
-              <div className="p-3 border-b border-slate-100">
-                <CheatingAlert onEvent={handleCheatingEvent} active={phase === PHASE.ANSWERING}/>
-              </div>
-
-              {/* Question list */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-                <p className="text-2xs font-mono text-slate-400 uppercase tracking-widest px-1 mb-2">Questions</p>
-                {(session?.questions || []).map((q, i) => {
-                  const answered = i < answers.length
-                  const current = i === currentQIdx
-                  const score = answered ? answers[i]?.feedback?.score : null
-                  const scoreColor = score >= 8 ? '#10B981' : score >= 5 ? '#6366F1' : '#F43F5E'
-                  return (
-                    <div key={i} className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs transition-all ${current ? 'bg-indigo-50 border border-indigo-200' : answered ? 'bg-slate-50' : 'text-slate-400'}`}>
-                      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-2xs font-bold ${current ? 'bg-indigo-600 text-white' : answered ? 'text-white' : 'bg-slate-100 text-slate-400'}`}
-                        style={{ background: answered && !current ? scoreColor : current ? '#4F46E5' : undefined }}>
-                        {answered ? (score >= 7 ? '✓' : score >= 4 ? '~' : '✕') : i + 1}
-                      </div>
-                      <span className={`truncate font-body ${current ? 'text-indigo-700 font-semibold' : answered ? 'text-slate-600' : 'text-slate-400'}`}>
-                        {q.category}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </motion.aside>
-          )}
-        </AnimatePresence>
-
-        {/* ── Main Area ── */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Top bar */}
-          <div className="h-12 bg-white border-b border-slate-200 flex items-center justify-between px-4 shrink-0">
-            <button onClick={() => setSidebarOpen(o => !o)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-all">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
-              </svg>
-            </button>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 text-xs font-mono text-slate-500">
-                <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"/>
-                RECORDING
-              </div>
-              <span className="text-xs font-mono text-indigo-600 font-bold">Q{currentQIdx + 1}/{totalQ}</span>
-              <span className="text-xs font-mono text-amber-600">+{totalPoints} pts</span>
-            </div>
-            <button onClick={() => { if (confirm('End interview session?')) endSession() }}
-              className="text-xs text-slate-400 hover:text-rose-500 px-2 py-1 rounded-lg hover:bg-rose-50 transition-all font-mono">
-              End Session
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            <AnimatePresence mode="wait">
-              {phase === PHASE.ANSWERING && currentQ && (
-                <motion.div key={`q-${currentQIdx}`}
-                  initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
-                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-                  className="space-y-4 max-w-3xl mx-auto">
-
-                  {/* Question card */}
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center font-mono text-indigo-700 font-bold text-sm">
-                          {String(currentQIdx + 1).padStart(2, '0')}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs px-2.5 py-1 rounded-full font-mono font-bold text-indigo-600 bg-indigo-50 border border-indigo-200">
-                            {currentQ.type}
-                          </span>
-                          <span className="text-xs px-2.5 py-1 rounded-full font-mono text-slate-500 bg-slate-50 border border-slate-200">
-                            {currentQ.category}
-                          </span>
-                          <span className="text-xs font-mono font-bold" style={{ color: diffCfg.color }}>
-                            ● {currentQ.difficulty || config.difficulty}
-                          </span>
-                        </div>
-                      </div>
-                      {currentQ.time_limit_seconds && (
-                        <span className="text-xs font-mono text-slate-400">{currentQ.time_limit_seconds}s limit</span>
-                      )}
-                    </div>
-
-                    <div className="p-6">
-                      <p style={{ fontFamily: "'Sora', sans-serif", fontWeight: 600, fontSize: 18, color: '#0F172A', lineHeight: 1.5 }}>
-                        {currentQ.question}
-                      </p>
-
-                      {currentQ.type === 'behavioral' && (
-                        <div className="mt-4 flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
-                          <span className="text-emerald-500 text-sm">💡</span>
-                          <p className="text-xs text-emerald-700 font-body">Use the <span className="font-bold">STAR method</span>: Situation → Task → Action → Result</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Answer input */}
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                      <span className="text-xs font-mono text-slate-400 uppercase tracking-wide">Your Answer</span>
-                      <span className="text-xs font-mono text-slate-400">{currentAnswer.length} chars · Ctrl+Enter to submit</span>
-                    </div>
-                    <textarea
-                      ref={textareaRef}
-                      value={currentAnswer}
-                      onChange={e => setCurrentAnswer(e.target.value)}
-                      placeholder="Type your answer here... Be detailed and specific. Structure your response clearly."
-                      rows={10}
-                      className="w-full px-5 py-4 text-sm font-body text-slate-800 placeholder-slate-300 resize-none outline-none"
-                      style={{ fontFamily: "'Inter', sans-serif", lineHeight: 1.7 }}
-                    />
-                    <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
-                      <button onClick={() => { setCurrentAnswer(''); toast('Answer cleared', { duration: 1500 }) }}
-                        className="text-xs text-slate-400 hover:text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-100 transition-all font-mono">
-                        Clear
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => nextQuestion()}
-                          className="text-xs text-slate-400 hover:text-amber-500 px-3 py-1.5 rounded-lg hover:bg-amber-50 transition-all font-mono border border-slate-200">
-                          Skip →
-                        </button>
-                        <button onClick={() => submitAnswer()}
-                          disabled={evaluating}
-                          className="px-5 py-2 rounded-xl text-white text-sm font-bold transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
-                          style={{ background: 'linear-gradient(135deg, #4F46E5, #7C3AED)', boxShadow: '0 2px 8px rgba(79,70,229,0.3)' }}>
-                          {evaluating ? 'Evaluating...' : 'Submit Answer →'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {phase === PHASE.FEEDBACK && (
-                <motion.div key={`fb-${currentQIdx}`}
-                  initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4 }}
-                  className="max-w-3xl mx-auto">
-                  {evaluating ? (
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-16 flex flex-col items-center gap-6">
-                      <div className="relative w-20 h-20">
-                        <div className="absolute inset-0 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"/>
-                        <div className="absolute inset-4 rounded-full border-2 border-emerald-100 border-b-emerald-500 animate-spin" style={{ animationDirection: 'reverse' }}/>
-                        <div className="absolute inset-0 flex items-center justify-center text-2xl">🤖</div>
-                      </div>
-                      <div className="text-center">
-                        <p style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 20, color: '#1E293B' }}>AI is evaluating your answer</p>
-                        <p className="text-sm text-slate-400 font-mono mt-2 animate-pulse">Analyzing depth · Checking accuracy · Generating feedback...</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <FeedbackCard
-                      feedback={currentFeedback}
-                      question={currentQ?.question}
-                      questionNumber={currentQIdx + 1}
-                      onNext={nextQuestion}
-                      isLast={isLastQ}
-                    />
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
+      <div style={{ padding:'24px 16px' }}>
+        <InterviewReport
+          reportData={session.sessionReport}
+          cheatingData={session.cheatingData}
+          answers={session.answers}
+          onRestart={session.resetSession}
+        />
       </div>
     )
   }
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // RENDER: COMPLETE
-  // ═══════════════════════════════════════════════════════════════════════
-  if (phase === PHASE.COMPLETE) {
-    const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 60000) : 0
-    const avgPct = Math.round(avgScore * 10)
-    const grade = avgScore >= 9 ? 'A+' : avgScore >= 8 ? 'A' : avgScore >= 7 ? 'B+' : avgScore >= 6 ? 'B' : avgScore >= 5 ? 'C' : 'D'
-
+  // ════════════════════════════════════════════════════════════════
+  // PHASE: ABORTED
+  // ════════════════════════════════════════════════════════════════
+  if (session.phase === SESSION_PHASE.ABORTED) {
     return (
-      <div className="max-w-3xl mx-auto space-y-6 pb-8">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
+      <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#FFF1F2', padding:24 }}>
+        <motion.div initial={{ opacity:0, scale:0.9 }} animate={{ opacity:1, scale:1 }}
+          style={{ maxWidth:460, width:'100%', background:'white', borderRadius:24, padding:40, textAlign:'center',
+            border:'2px solid #FECDD3', boxShadow:'0 16px 48px rgba(244,63,94,0.15)' }}>
+          <div style={{ fontSize:56, marginBottom:16 }}>🚨</div>
+          <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:24, color:'#881337', marginBottom:12 }}>
+            Session Terminated
+          </h2>
+          <p style={{ fontFamily:"'Inter',sans-serif", fontSize:14, color:'#9F1239', lineHeight:1.6, marginBottom:24 }}>
+            Your interview session was terminated due to too many integrity violations. The session has been recorded and flagged for review.
+          </p>
+          <div style={{ padding:'12px 16px', borderRadius:12, background:'#FFF1F2', border:'1px solid #FECDD3', marginBottom:24 }}>
+            <p style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:'#B91C1C' }}>
+              Warnings: {session.cheatingData.warning_count} / {MAX_WARNINGS}
+            </p>
+          </div>
+          <button onClick={session.resetSession}
+            style={{ width:'100%', padding:'13px 0', borderRadius:12, border:'none',
+              fontFamily:"'Sora',sans-serif", fontWeight:600, fontSize:14, color:'white', cursor:'pointer',
+              background:'linear-gradient(135deg,#1565C0,#2196F3)', boxShadow:'0 4px 14px rgba(21,101,192,0.3)' }}>
+            Start Fresh Interview
+          </button>
+        </motion.div>
+      </div>
+    )
+  }
 
-          {/* Hero result */}
-          <div className="rounded-3xl overflow-hidden shadow-2xl" style={{ background: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 100%)' }}>
-            <div className="p-10 text-center">
-              <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 0.6, delay: 0.3 }} className="text-6xl mb-4">
-                {avgScore >= 8 ? '🏆' : avgScore >= 6 ? '🎯' : avgScore >= 4 ? '📈' : '💪'}
-              </motion.div>
-              <h2 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 36, color: 'white', marginBottom: 8 }}>
-                Interview Complete!
-              </h2>
-              <p className="text-indigo-300 font-body mb-8">Here's your performance summary</p>
-              <div className="flex justify-center mb-8">
-                <ScoreGauge score={avgScore} maxScore={10} size={160} label="Overall Score"/>
-              </div>
-              <div className="grid grid-cols-4 gap-4">
-                {[
-                  { val: answers.length, label: 'Answered' },
-                  { val: grade, label: 'Grade' },
-                  { val: `${totalPoints}`, label: 'Points Earned' },
-                  { val: `${sessionDuration}m`, label: 'Duration' },
-                ].map(({ val, label }) => (
-                  <div key={label} className="bg-white/10 rounded-2xl p-4 text-center backdrop-blur-sm">
-                    <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 24, color: 'white' }}>{val}</div>
-                    <div className="text-xs text-indigo-300 font-mono mt-1">{label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+  // ════════════════════════════════════════════════════════════════
+  // PHASE: ACTIVE / EVALUATING / FEEDBACK — Main Interview UI
+  // ════════════════════════════════════════════════════════════════
+  const q         = session.currentQ
+  const progress  = session.totalQ > 0 ? ((session.currentQIdx + (session.phase === SESSION_PHASE.FEEDBACK ? 1 : 0)) / session.totalQ) * 100 : 0
 
-            {/* Cheating summary */}
-            {cheatingEvents.length > 0 && (
-              <div className="px-10 pb-6">
-                <div className="p-4 rounded-2xl bg-amber-500/20 border border-amber-400/40">
-                  <p className="text-sm text-amber-200 font-mono font-bold">⚠ {cheatingEvents.length} integrity event{cheatingEvents.length > 1 ? 's' : ''} were recorded during this session.</p>
+  return (
+    <div style={{ minHeight:'100vh', background:'#F8FAFC', display:'flex', flexDirection:'column', margin:'-24px' }}>
+
+      {/* Warning banner */}
+      <AnimatePresence>
+        {currentWarning && session.phase === SESSION_PHASE.ACTIVE && (
+          <WarningBanner
+            key={currentWarning.timestamp}
+            event={currentWarning}
+            warningCount={session.cheatingData.warning_count}
+            maxWarnings={MAX_WARNINGS}
+            onDismiss={() => setCurrentWarning(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Top bar */}
+      <div style={{ height:56, background:'white', borderBottom:'1px solid #E2E8F0', display:'flex',
+        alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:50 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:20,
+            background:'#FFF1F2', border:'1px solid #FECDD3' }}>
+            <motion.div animate={{ opacity:[1,0.3,1] }} transition={{ repeat:Infinity, duration:1.5 }}
+              style={{ width:5, height:5, borderRadius:'50%', background:'#F43F5E' }}/>
+            <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, fontWeight:700, color:'#B91C1C', letterSpacing:'0.1em' }}>LIVE</span>
+          </div>
+          <span style={{ fontFamily:"'Inter',sans-serif", fontSize:13, fontWeight:600, color:'#1E293B' }}>
+            {session.config?.job_title}
+          </span>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:'#94A3B8' }}>
+            Q{session.currentQIdx + 1}/{session.totalQ}
+          </span>
+        </div>
+
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:13, fontWeight:700, color:'#475569' }}>
+            {fmt(session.timeElapsed)}
+          </span>
+          <button
+            onClick={() => { if (confirm('End session? Results will be saved.')) session.completeSession() }}
+            style={{ padding:'5px 12px', borderRadius:8, background:'#FFF1F2', border:'1px solid #FECDD3',
+              color:'#B91C1C', fontFamily:"'Inter',sans-serif", fontSize:12, fontWeight:600, cursor:'pointer' }}>
+            End
+          </button>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ height:3, background:'#E2E8F0' }}>
+        <motion.div animate={{ width:`${progress}%` }} transition={{ duration:0.6, ease:[0.16,1,0.3,1] }}
+          style={{ height:'100%', background:'linear-gradient(90deg,#1565C0,#2196F3)' }}/>
+      </div>
+
+      {/* Main content */}
+      <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 280px', gap:20, padding:'20px', maxWidth:1200, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+
+        {/* ── LEFT: Question + Answer ── */}
+        <div style={{ display:'flex', flexDirection:'column', gap:16, minWidth:0 }}>
+
+          <AnimatePresence mode="wait">
+            {session.phase === SESSION_PHASE.EVALUATING && (
+              <motion.div key="evaluating"
+                initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}
+                style={{ background:'white', borderRadius:20, border:'1px solid #E2E8F0', padding:'60px 40px', textAlign:'center', boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}>
+                <div style={{ width:64, height:64, margin:'0 auto 20px', position:'relative' }}>
+                  <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:'3px solid #EFF6FF', borderTopColor:'#6366F1' }} className="animate-spin"/>
+                  <div style={{ position:'absolute', inset:8, borderRadius:'50%', border:'2px solid #ECFDF5', borderBottomColor:'#10B981' }} className="animate-spin" style2={{ animationDirection:'reverse', animationDuration:'1.4s' }}/>
+                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>🤖</div>
                 </div>
-              </div>
+                <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:'#1E293B', marginBottom:8 }}>AI is Evaluating</p>
+                <p style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:'#94A3B8' }}>
+                  Analyzing relevance · Checking clarity · Computing confidence score...
+                </p>
+              </motion.div>
             )}
+
+            {session.phase === SESSION_PHASE.FEEDBACK && session.currentEval && (
+              <motion.div key="feedback" initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}>
+                <FeedbackPanel
+                  eval={session.currentEval}
+                  question={q}
+                  questionNum={session.currentQIdx + 1}
+                  isLast={session.isLastQ}
+                  onNext={session.nextQuestion}
+                  onReattempt={session.reattemptQuestion}
+                  loading={session.loading}
+                />
+              </motion.div>
+            )}
+
+            {session.phase === SESSION_PHASE.ACTIVE && q && (
+              <motion.div key={`q-${session.currentQIdx}`} initial={{ opacity:0, x:24 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:-24 }}
+                transition={{ duration:0.35, ease:[0.16,1,0.3,1] }}
+                style={{ display:'flex', flexDirection:'column', gap:16 }}>
+
+                {/* AI Avatar + Question */}
+                <div style={{ background:'white', borderRadius:20, border:'1px solid #E2E8F0', overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}>
+                  {/* Question header */}
+                  <div style={{ padding:'16px 20px', borderBottom:'1px solid #F1F5F9', display:'flex', alignItems:'center', gap:12 }}>
+                    <div style={{ width:36, height:36, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center',
+                      fontFamily:"'JetBrains Mono',monospace", fontWeight:700, fontSize:13, color:'white',
+                      background:'linear-gradient(135deg,#1565C0,#2196F3)' }}>
+                      {String(session.currentQIdx+1).padStart(2,'0')}
+                    </div>
+                    <div style={{ display:'flex', gap:8, flex:1 }}>
+                      <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, fontWeight:700,
+                        padding:'2px 8px', borderRadius:20, color:diffCfg.color, background:diffCfg.bg, border:`1px solid ${diffCfg.border}` }}>
+                        {q.category?.toUpperCase()}
+                      </span>
+                      <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10,
+                        padding:'2px 8px', borderRadius:20, color:diffCfg.color, background:diffCfg.bg, border:`1px solid ${diffCfg.border}` }}>
+                        {session.config?.difficulty?.toUpperCase()}
+                      </span>
+                    </div>
+                    <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:'#94A3B8' }}>
+                      {session.currentQIdx+1}/{session.totalQ}
+                    </span>
+                  </div>
+
+                  <div style={{ padding:'20px', display:'flex', gap:20, alignItems:'flex-start' }}>
+                    {/* Avatar */}
+                    <div style={{ flexShrink:0 }}>
+                      <AIAvatar
+                        question={q.text}
+                        autoSpeak
+                        compact={false}
+                        avatarName="Alex"
+                        onSpeakEnd={() => {}}
+                      />
+                    </div>
+
+                    {/* Question text */}
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:600, fontSize:17, color:'#0F172A', lineHeight:1.6, marginBottom:16 }}>
+                        {q.text}
+                      </p>
+                      {q.category === 'behavioral' && (
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
+                          {['Situation','Task','Action','Result'].map((s,i) => (
+                            <div key={s} style={{ textAlign:'center', padding:'8px 4px', borderRadius:10, background:'#ECFDF5', border:'1px solid #A7F3D0' }}>
+                              <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:14, color:'#065F46' }}>{s[0]}</p>
+                              <p style={{ fontFamily:"'Inter',sans-serif", fontSize:10, color:'#059669' }}>{s}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Answer input */}
+                <AnswerInput
+                  value={answerText}
+                  onChange={setAnswerText}
+                  onSubmit={handleSubmitAnswer}
+                  loading={session.phase === SESSION_PHASE.EVALUATING}
+                  questionTimer={session.questionTimer}
+                  diffCfg={diffCfg}
+                  sttHook={stt}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* ── RIGHT: Camera + Status ── */}
+        <div style={{ display:'flex', flexDirection:'column', gap:14, minWidth:0 }}>
+          {/* AI Avatar compact */}
+          <div style={{ background:'white', borderRadius:16, border:'1px solid #E2E8F0', padding:'12px 14px' }}>
+            <AIAvatar compact avatarName="Alex" speaking={session.phase === SESSION_PHASE.EVALUATING}/>
           </div>
 
-          {/* Per-question breakdown */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 18, color: '#1E293B', marginBottom: 16 }}>Question Breakdown</h3>
-            <div className="space-y-3">
-              {answers.map((ans, i) => {
-                const sc = ans.feedback?.score || 0
-                const color = sc >= 8 ? '#10B981' : sc >= 5 ? '#6366F1' : '#F43F5E'
+          {/* Camera panel */}
+          <div style={{ background:'white', borderRadius:16, border:'1px solid #E2E8F0', padding:12 }}>
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#64748B', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:10 }}>Live Monitoring</p>
+            <CameraPanel
+              videoRef={videoRef}
+              canvasRef={canvasRef}
+              faceStatus={faceStatus}
+              faceCount={faceCount}
+              gazeDir={gazeDir}
+              mpReady={mpReady}
+              phone={phone}
+              objectLabel={objectLabel}    
+              emotion={emotion}
+              confidence={confidence}
+              lookAwayMs={lookAwayMs}
+              cheatingData={session.cheatingData}
+              warningCount={session.cheatingData.warning_count}
+              maxWarnings={MAX_WARNINGS}
+            />
+          </div>
+
+          {/* Question list */}
+          <div style={{ background:'white', borderRadius:16, border:'1px solid #E2E8F0', padding:12 }}>
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#64748B', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:10 }}>Progress</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              {session.session?.questions?.slice(0,10).map((qq, i) => {
+                const answered = i < session.answers.length
+                const current  = i === session.currentQIdx
+                const score    = answered ? session.answers[i]?.evaluation?.overall_score : null
+                const c        = score >= 70 ? '#10B981' : score >= 50 ? '#6366F1' : score !== null ? '#F59E0B' : null
                 return (
-                  <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white shrink-0"
-                      style={{ background: color }}>
-                      {sc.toFixed(1)}
+                  <div key={i} style={{
+                    display:'flex', alignItems:'center', gap:8, padding:'6px 8px', borderRadius:8,
+                    background: current ? '#EFF6FF' : answered ? '#F8FAFC' : 'transparent',
+                    border: current ? '1px solid #BFDBFE' : '1px solid transparent',
+                  }}>
+                    <div style={{ width:20, height:20, borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center',
+                      fontFamily:"'JetBrains Mono',monospace", fontWeight:700, fontSize:10, color:'white', flexShrink:0,
+                      background: current ? '#6366F1' : c || '#E2E8F0' }}>
+                      {current ? '▶' : answered ? (score >= 70 ? '✓' : score >= 50 ? '~' : '✕') : i+1}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-700 font-body truncate">
-                        Q{i + 1}: {(session?.questions?.[i]?.category) || 'Question'}
-                      </p>
-                      <p className="text-xs text-slate-400 font-mono mt-0.5">{ans.feedback?.grade} · {ans.time_taken}s</p>
+                    <span style={{ fontFamily:"'Inter',sans-serif", fontSize:11, color: current ? '#1D4ED8' : '#64748B',
+                      fontWeight: current ? 600 : 400, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
+                      {qq.category}
+                    </span>
+                    {answered && score !== null && (
+                      <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, fontWeight:700, color:c, flexShrink:0 }}>
+                        {Math.round(score)}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Feedback Panel ─────────────────────────────────────────────────────────────
+function FeedbackPanel({ eval: ev, question, questionNum, isLast, onNext, onReattempt, loading }) {
+  const score = ev?.overall_score || 0
+  const c = score >= 80 ? '#10B981' : score >= 60 ? '#6366F1' : score >= 40 ? '#F59E0B' : '#F43F5E'
+  const bg= score >= 80 ? '#ECFDF5' : score >= 60 ? '#EFF6FF' : score >= 40 ? '#FFFBEB' : '#FFF1F2'
+  const border = score >= 80 ? '#A7F3D0' : score >= 60 ? '#BFDBFE' : score >= 40 ? '#FDE68A' : '#FECDD3'
+
+  return (
+    <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }}
+      style={{ background:'white', borderRadius:20, border:`2px solid ${border}`, overflow:'hidden', boxShadow:'0 4px 20px rgba(0,0,0,0.08)' }}>
+
+      {/* Score header */}
+      <div style={{ padding:'20px 24px', background:bg, display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
+        <div>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, fontWeight:700, color:c, textTransform:'uppercase', letterSpacing:'0.08em' }}>
+            Q{questionNum} Feedback
+          </span>
+          <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:600, fontSize:15, color:'#0F172A', marginTop:4, lineHeight:1.4 }}>
+            {question?.text?.slice(0,80)}{question?.text?.length > 80 ? '...' : ''}
+          </p>
+        </div>
+        <div style={{ textAlign:'center', flexShrink:0 }}>
+          <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:36, color:c, lineHeight:1 }}>{Math.round(score)}</p>
+          <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, color:c, fontWeight:700 }}>{ev?.grade} / 100</p>
+        </div>
+      </div>
+
+      <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:14 }}>
+        {/* Mini scores */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
+          {[
+            { label:'Relevance',  val:ev?.relevance_score  },
+            { label:'Clarity',    val:ev?.clarity_score    },
+            { label:'Confidence', val:ev?.confidence_score },
+            { label:'Technical',  val:ev?.technical_score  },
+          ].map(({ label, val }) => {
+            const v = Math.round(val || 0)
+            const cc = v >= 70 ? '#10B981' : v >= 50 ? '#6366F1' : '#F59E0B'
+            return (
+              <div key={label} style={{ textAlign:'center', padding:'10px 4px', borderRadius:10, background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
+                <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:20, color:cc }}>{v}</p>
+                <p style={{ fontFamily:"'Inter',sans-serif", fontSize:9, color:'#94A3B8', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', marginTop:1 }}>{label}</p>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* AI feedback */}
+        {ev?.feedback && (
+          <div style={{ padding:'12px 14px', borderRadius:12, background:'#F0F9FF', border:'1px solid #BAE6FD' }}>
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#0369A1', marginBottom:5 }}>🤖 AI Coach Feedback</p>
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:13, color:'#075985', lineHeight:1.65 }}>{ev.feedback}</p>
+          </div>
+        )}
+
+        {/* Model answer */}
+        {ev?.ideal_answer_summary && (
+          <div style={{ padding:'12px 14px', borderRadius:12, background:'#F0FDF4', border:'1px solid #BBF7D0' }}>
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#15803D', marginBottom:5 }}>💡 Model Answer</p>
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:13, color:'#166534', lineHeight:1.65 }}>{ev.ideal_answer_summary}</p>
+          </div>
+        )}
+
+        {/* Tips */}
+        {ev?.improvement_tips?.length > 0 && (
+          <div>
+            <p style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#64748B', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.06em' }}>Improvement Tips</p>
+            {ev.improvement_tips.slice(0,3).map((tip, i) => (
+              <div key={i} style={{ display:'flex', gap:8, marginBottom:5, fontFamily:"'Inter',sans-serif", fontSize:12, color:'#475569' }}>
+                <span style={{ color:'#6366F1', flexShrink:0 }}>→</span>{tip}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Filler words */}
+        {(ev?.filler_word_count || 0) > 0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:'#94A3B8' }}>
+              Filler words detected: <strong style={{ color:'#F59E0B' }}>{ev.filler_word_count}</strong>
+            </span>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display:'flex', gap:10, paddingTop:4 }}>
+          <button
+            onClick={onReattempt}
+            style={{ flex:1, padding:'11px 0', borderRadius:12, border:'1.5px solid #E2E8F0',
+              background:'white', fontFamily:"'Sora',sans-serif", fontWeight:600, fontSize:13,
+              color:'#64748B', cursor:'pointer', transition:'all 0.2s' }}>
+            ↺ Reattempt
+          </button>
+          <button
+            onClick={onNext}
+            disabled={loading}
+            style={{
+              flex:2, padding:'11px 0', borderRadius:12, border:'none',
+              fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, color:'white', cursor:'pointer',
+              background: isLast ? 'linear-gradient(135deg,#10B981,#059669)' : `linear-gradient(135deg,${c},${c}CC)`,
+              boxShadow:`0 4px 12px ${c}35`, transition:'all 0.2s',
+            }}>
+            {isLast ? '🏆 View Final Report' : 'Next Question →'}
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// ── Setup Screen ───────────────────────────────────────────────────────────────
+function SetupScreen({ onStart, loading }) {
+  const [form, setForm] = useState({
+    job_title: '', difficulty: 'medium', interview_type: 'mixed', num_questions: 8,
+  })
+
+  return (
+    <div style={{ maxWidth:680, margin:'0 auto', padding:'24px 16px' }}>
+      <motion.div initial={{ opacity:0, y:-16 }} animate={{ opacity:1, y:0 }}
+        style={{ background:'white', borderRadius:24, border:'1px solid #E2E8F0', overflow:'hidden', boxShadow:'0 16px 48px rgba(0,0,0,0.08)' }}>
+
+        {/* Hero */}
+        <div style={{ padding:'36px', textAlign:'center',
+          background:'linear-gradient(158deg,#071B38 0%,#0A2347 20%,#1246A0 65%,#1565C0 100%)',
+          position:'relative', overflow:'hidden' }}>
+          <div style={{ position:'absolute', inset:0, opacity:0.07,
+            backgroundImage:'radial-gradient(circle,rgba(255,255,255,0.7) 1px,transparent 1px)',
+            backgroundSize:'28px 28px' }}/>
+          <motion.div animate={{ y:[0,-8,0] }} transition={{ repeat:Infinity, duration:3 }}
+            style={{ fontSize:52, marginBottom:16, position:'relative' }}>🤖</motion.div>
+          <h1 style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:28, color:'white', marginBottom:8, position:'relative', lineHeight:1.2 }}>
+            AI Mock Interview Platform
+          </h1>
+          <p style={{ fontFamily:"'Inter',sans-serif", fontSize:14, color:'rgba(255,255,255,0.7)', position:'relative' }}>
+            Real-time face detection · Voice input · AI evaluation · Cheating detection
+          </p>
+        </div>
+
+        <div style={{ padding:'32px 36px', display:'flex', flexDirection:'column', gap:18 }}>
+          {/* Job Title */}
+          <div>
+            <label style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#64748B', textTransform:'uppercase', letterSpacing:'0.08em', display:'block', marginBottom:7 }}>
+              Target Role
+            </label>
+            <input
+              value={form.job_title}
+              onChange={e => setForm(f => ({ ...f, job_title:e.target.value }))}
+              placeholder="e.g. Senior Backend Engineer"
+              style={{ width:'100%', padding:'12px 16px', borderRadius:12, border:'2px solid #E2E8F0',
+                fontFamily:"'Inter',sans-serif", fontSize:14, color:'#1E293B', outline:'none', boxSizing:'border-box',
+                transition:'border-color 0.2s' }}
+              onFocus={e => e.target.style.borderColor='#6366F1'}
+              onBlur={e => e.target.style.borderColor='#E2E8F0'}
+            />
+          </div>
+
+          {/* Interview Type */}
+          <div>
+            <label style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#64748B', textTransform:'uppercase', letterSpacing:'0.08em', display:'block', marginBottom:7 }}>
+              Interview Type
+            </label>
+            <select
+              value={form.interview_type}
+              onChange={e => setForm(f => ({ ...f, interview_type:e.target.value }))}
+              style={{ width:'100%', padding:'12px 16px', borderRadius:12, border:'2px solid #E2E8F0',
+                fontFamily:"'Inter',sans-serif", fontSize:14, color:'#1E293B', outline:'none', cursor:'pointer', background:'white', boxSizing:'border-box' }}>
+              <option value="mixed">Mixed — Technical + Behavioral + Situational</option>
+              <option value="technical">Technical — Deep skills assessment</option>
+              <option value="behavioral">Behavioral — STAR method focus</option>
+              <option value="situational">Situational — Problem-solving scenarios</option>
+            </select>
+          </div>
+
+          {/* Difficulty */}
+          <div>
+            <label style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#64748B', textTransform:'uppercase', letterSpacing:'0.08em', display:'block', marginBottom:7 }}>
+              Difficulty
+            </label>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+              {['easy','medium','hard'].map(d => {
+                const dc = DIFF_CONFIG[d]
+                const sel = form.difficulty === d
+                return (
+                  <button key={d} type="button"
+                    onClick={() => setForm(f => ({ ...f, difficulty:d }))}
+                    style={{
+                      padding:'12px 8px', borderRadius:12, border:`2px solid ${sel ? dc.color : '#E2E8F0'}`,
+                      background: sel ? dc.bg : 'white', color: sel ? dc.color : '#94A3B8',
+                      fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, textTransform:'capitalize',
+                      cursor:'pointer', transition:'all 0.2s',
+                      boxShadow: sel ? `0 0 0 3px ${dc.color}20` : 'none',
+                    }}>
+                    {d === 'easy' ? '🟢' : d === 'medium' ? '🟡' : '🔴'} {dc.label}
+                    <div style={{ fontSize:10, fontWeight:400, color: sel ? dc.color : '#CBD5E1', marginTop:2 }}>
+                      {dc.time}s / question
                     </div>
-                    <div className="w-24 h-2 bg-slate-200 rounded-full overflow-hidden shrink-0">
-                      <div className="h-full rounded-full" style={{ width: `${sc * 10}%`, background: color }}/>
-                    </div>
-                  </motion.div>
+                  </button>
                 )
               })}
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="grid grid-cols-2 gap-4">
-            <button onClick={() => { setPhase(PHASE.SETUP); setAnswers([]); setSession(null); setTotalScore(0); setTotalPoints(0); setCheatingEvents([]) }}
-              className="py-3.5 rounded-2xl font-bold text-sm border-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition-all font-body">
-              🔄 Start New Interview
-            </button>
-            <button onClick={() => navigate('/gamification')}
-              className="py-3.5 rounded-2xl text-white font-bold text-sm transition-all hover:-translate-y-0.5"
-              style={{ background: 'linear-gradient(135deg, #4F46E5, #7C3AED)', boxShadow: '0 4px 12px rgba(79,70,229,0.3)' }}>
-              🏆 View Rewards →
-            </button>
+          {/* Questions count */}
+          <div>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
+              <label style={{ fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:700, color:'#64748B', textTransform:'uppercase', letterSpacing:'0.08em' }}>
+                Questions
+              </label>
+              <span style={{ fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700, color:'#6366F1' }}>
+                {form.num_questions} (~{Math.round(form.num_questions * (DIFF_CONFIG[form.difficulty]?.time || 180) / 60)} min)
+              </span>
+            </div>
+            <input type="range" min={3} max={15} value={form.num_questions}
+              onChange={e => setForm(f => ({ ...f, num_questions:parseInt(e.target.value) }))}
+              style={{ width:'100%', accentColor:'#6366F1', cursor:'pointer' }}/>
+            <div style={{ display:'flex', justifyContent:'space-between', fontFamily:"'JetBrains Mono',monospace", fontSize:10, color:'#94A3B8', marginTop:3 }}>
+              <span>3 quick</span><span>8 standard</span><span>15 full</span>
+            </div>
           </div>
-        </motion.div>
-      </div>
-    )
-  }
 
-  return null
+          {/* Feature badges */}
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+            {[
+              { icon:'🤖', label:'AI Avatar TTS' },
+              { icon:'📷', label:'Face Detection' },
+              { icon:'🎤', label:'Voice Input' },
+              { icon:'⚠️', label:'Cheat Detection' },
+              { icon:'📊', label:'AI Evaluation' },
+              { icon:'🔄', label:'Reattempt' },
+            ].map(({ icon, label }) => (
+              <div key={label} style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:20,
+                background:'#EFF6FF', border:'1px solid #C7D2FE', fontFamily:"'Inter',sans-serif", fontSize:11, fontWeight:600, color:'#4338CA' }}>
+                <span>{icon}</span>{label}
+              </div>
+            ))}
+          </div>
+
+          {/* Start */}
+          <motion.button
+            type="button"
+            onClick={() => onStart(form)}
+            disabled={loading}
+            whileHover={{ scale: loading ? 1 : 1.01 }}
+            whileTap={{ scale: loading ? 1 : 0.98 }}
+            style={{
+              width:'100%', padding:'15px 0', borderRadius:14, border:'none',
+              fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:16, color:'white',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              background: loading ? '#94A3B8' : 'linear-gradient(135deg,#1565C0 0%,#1976D2 50%,#2196F3 100%)',
+              boxShadow: loading ? 'none' : '0 6px 20px rgba(21,101,192,0.40)',
+              transition:'background 0.2s,box-shadow 0.2s',
+            }}>
+            {loading ? (
+              <span style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}>
+                <svg style={{ width:16, height:16 }} className="animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle style={{ opacity:0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path style={{ opacity:0.8 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                Setting up your interview...
+              </span>
+            ) : '🚀 Start AI Interview'}
+          </motion.button>
+        </div>
+      </motion.div>
+    </div>
+  )
 }

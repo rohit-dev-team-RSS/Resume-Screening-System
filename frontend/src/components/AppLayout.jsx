@@ -61,6 +61,12 @@ const NAV_GROUPS = [
       { to: '/gamification', label: 'Badges & Points', icon: Icons.gamification, badge: '🏆', badgeColor: '#F59E0B' },
     ],
   },
+  {
+    label: 'Recruiter',
+    items: [
+      { to: '/recruiter', label: 'Shortlist Candidates', icon: Icons.ats, badgeColor: '#10B981' },
+    ],
+  },
 ]
 
 const PAGE_TITLES = {
@@ -75,6 +81,7 @@ const PAGE_TITLES = {
   '/github': { title: 'GitHub Analysis', sub: 'Profile & contribution insights' },
   '/fake-detect': { title: 'Authenticity Check', sub: '7-factor experience verification' },
   '/gamification': { title: 'Rewards Hub', sub: 'Points, badges & leaderboard' },
+  '/recruiter': { title: 'Shortlist Candidates', sub: 'JD → Top matching resumes' },
 }
 
 function Sidebar({ collapsed, onToggle }) {
