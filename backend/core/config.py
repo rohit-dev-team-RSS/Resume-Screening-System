@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
-        "https://yourdomain.com",
+        "https://resume-screening-system-lyart.vercel.app",
     ]
 
     # ── File Upload ───────────────────────────────────────────────────────────
@@ -54,9 +54,6 @@ class Settings(BaseSettings):
     FTP_PASSWORD: str
     FTP_PORT: int = 21
     FTP_BASE_URL: str
-    # CLOUDINARY_CLOUD_NAME: str
-    # CLOUDINARY_API_KEY: str
-    # CLOUDINARY_API_SECRET: str
 
     # ── NLP / ML ──────────────────────────────────────────────────────────────
     BERT_MODEL_NAME: str = "all-MiniLM-L6-v2"
@@ -112,10 +109,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-
-# ── Append these at the END of the Settings class body ──────────────────────
-# (Already in file if you see them — skip if duplicate)
-# GROQ_API_KEY: Optional[str] = None
-# MISTRAL_API_KEY: Optional[str] = None
-# GAMIFICATION_ENABLED: bool = True
-# LEADERBOARD_SIZE: int = 50
