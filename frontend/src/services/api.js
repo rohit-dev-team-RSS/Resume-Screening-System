@@ -52,7 +52,8 @@ api.interceptors.response.use(
     if (
       err.response?.status === 401 &&
       !originalRequest._retry &&
-      !originalRequest.url.includes('/auth/')
+      !originalRequest.url.includes('/auth/') &&
+      err.code !== "ERR_NETWORK"  
     ) {
       originalRequest._retry = true
 

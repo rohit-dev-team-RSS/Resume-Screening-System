@@ -68,7 +68,7 @@ def create_application() -> FastAPI:
             "https://resume-screening-system-lyart.vercel.app",
             "https://resume-screening-system-hb2d.onrender.com"
         ],
-        allow_credentials=True,
+        allow_credentials=false,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -112,7 +112,7 @@ def create_application() -> FastAPI:
     app.include_router(interview_ai_router, prefix=f"{p}/interview", tags=["AI Interview"])
     app.include_router(live_interview_router, prefix=f"{p}/live-interview", tags=["Live Interview"])
     app.include_router(interview_analytics_router, prefix=f"{p}/interview-analytics", tags=["Interview Analytics"])
-    app.include_router(recruiter_router, prefix="/api/v1/recruiter", tags=["Recruiter"])
+    # app.include_router(recruiter_router, prefix="/api/v1/recruiter", tags=["Recruiter"])
 
     # ── Prometheus ────────────────────────────────────────────────────────────
     @app.get("/metrics", include_in_schema=False)

@@ -218,7 +218,7 @@ function CandidateCard({ c, idx }) {
         template: 'modern'
       })
 
-      const url = data.pdf_url || data.download_url
+      const url = data.pdf_url
 
       if (url) {
         window.open(url, '_blank')
@@ -226,8 +226,9 @@ function CandidateCard({ c, idx }) {
         toast.error('PDF not available')
       }
 
-    } catch {
-      toast.error('Download failed')
+    } catch (err) {
+      console.error(err)
+      toast.error(err.response?.data?.detail || 'Download failed')
     }
   }
   return (
