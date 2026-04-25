@@ -14,6 +14,12 @@ import {
 import ScoreRing from '../components/ScoreRing'
 import { AnimatedBar } from '../components/AnimatedNumber'
 import api from '../services/api'
+
+useEffect(() => {
+  fetch("https://resume-screening-system-hb2d.onrender.com/health")
+    .then(() => console.log("Backend ready"))
+    .catch(() => console.log("Warmup fail"))
+}, [])
 // ── Tutorial links for skill gaps ─────────────────────────────────────────────
 const TUTORIAL_MAP = {
   kubernetes:   [{ title:'Kubernetes Official Docs', url:'https://kubernetes.io/docs/tutorials/' }, { title:'KodeKloud K8s Course (Free)', url:'https://kodekloud.com/courses/kubernetes-for-the-absolute-beginners-hands-on/' }],
@@ -510,7 +516,7 @@ const onResumeDrop = useCallback(async (accepted) => {
     const rid = resumeId
     if (!rid) { toast.error('Upload a resume first'); return }
     const jd  = jdText.trim()
-    if (jd.length < 30 && !jdFile) { toast.error('Paste a job description (min 30 chars)'); return }
+    if (jd.length < 50 && !jdFile) { toast.error('Paste a job description (min 30 chars)'); return }
 
     setAnalyzing(true); setResult(null); setEnhanceResult(null)
     try {
@@ -521,7 +527,17 @@ const onResumeDrop = useCallback(async (accepted) => {
         required_skills: requiredSkills.split(',').map(s => s.trim()).filter(Boolean),
         save_result:     true,
       }
-      const { data } = await matchATS(payload)
+      const callATS = async (payload) => {
+        try {
+          return await matchATS(payload)
+        } catch (err) {
+          console.log("Retrying ATS in 3 sec...")
+          await new Promise(r => setTimeout(r, 3000))
+          return await matchATS(payload)
+        }
+      }
+
+      const { data } = await callATS(payload)
       setResult(data)
       setActiveTab(0)
       toast.success(`ATS Score: ${Math.round(data.scores.final_score * 100)}% 🎯`)

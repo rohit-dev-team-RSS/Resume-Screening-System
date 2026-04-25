@@ -1,53 +1,83 @@
-'<!doctype html>
+<!doctype html>
 <html lang="en">
 
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CareerAI — Smart ATS & Career Co-Pilot</title>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <title>CareerAI — Smart ATS & Career Co-Pilot</title>
 
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      html { scroll-behavior: smooth; }
-      body { margin: 0; background: #FAF9F6; font-family: 'Plus Jakarta Sans', sans-serif; -webkit-font-smoothing: antialiased; }
-      ::-webkit-scrollbar { width: 5px; height: 5px; }
-      ::-webkit-scrollbar-track { background: #F4F2ED; }
-      ::-webkit-scrollbar-thumb { background: #C7D2FE; border-radius: 3px; }
-      ::-webkit-scrollbar-thumb:hover { background: #818CF8; }
-      ::selection { background: rgba(99,102,241,0.15); color: #1C1C28; }
-    </style>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
-    <!--  ADD THIS HERE -->
-  <!-- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script> -->
+  <link href="https://fonts.googleapis.com/css2?
+    family=Inter:wght@300;400;500;600;700&
+    family=Poppins:wght@500;600;700&
+    family=JetBrains+Mono:wght@300;400;500;600&
+    display=swap" rel="stylesheet" />
 
-  <!--  TensorFlow.js + COCO-SSD (phone/object detection) -->
-  <!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script> -->
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
 
-  <!--  face-api.js (emotions) -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>  -->
-   <!-- MediaPipe FaceMesh (face + iris gaze) -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    html {
+      scroll-behavior: smooth;
+    }
 
-<!-- TensorFlow.js + COCO-SSD are loaded dynamically by useAdvancedDetection.js -->
-<!-- face-api.js is also loaded dynamically -->
+    body {
+      margin: 0;
+      background: #FAF9F6;
+      font-family: 'Inter', sans-serif; /* ✅ FIXED */
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
 
-  </head>
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
 
-  <body>
-    <div id="root"></div>
+    ::-webkit-scrollbar-track {
+      background: #F4F2ED;
+    }
 
-    <!-- Google OAuth Script -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    ::-webkit-scrollbar-thumb {
+      background: #C7D2FE;
+      border-radius: 3px;
+    }
 
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+    ::-webkit-scrollbar-thumb:hover {
+      background: #818CF8;
+    }
+
+    /* Selection */
+    ::selection {
+      background: rgba(99, 102, 241, 0.15);
+      color: #1C1C28;
+    }
+
+    /* Headings (optional improvement) */
+    h1, h2, h3 {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+    }
+  </style>
+
+</head>
+
+<body>
+
+  <div id="root"></div>
+
+  <!-- Google OAuth -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- Main React App -->
+  <script type="module" src="/src/main.jsx"></script>
+
+</body>
 
 </html>
