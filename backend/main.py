@@ -11,7 +11,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
-
+import asyncio
 # ── Existing routes ────────────────────────────────────────────────────────────
 from api.routes import (
     auth, resume, ats, skills, explain, enhance,
@@ -28,6 +28,7 @@ from api.routes.interview_analytics import router as interview_analytics_router
 from api.routes.live_interview import router as live_interview_router
 from api.routes.recruiter_v2 import router as recruiter_router
 
+from backend.services.ats_service import _get_bert_model
 from config.db import connect_db, disconnect_db
 from core.config import settings
 from core.logging import setup_logging
@@ -121,6 +122,20 @@ def create_application() -> FastAPI:
 
 
 app = create_application()
+
+@app.on_event("startup")
+async def preload_model():
+    from services.ats_service import _get_bert_model
+
+    def load():
+        try:
+            print("🔄 Loading BERT model in background...")
+            _get_bert_model()
+            print("✅ Model loaded successfully")
+        except Exception as e:
+            print("❌ Model load failed:", str(e))
+
+    asyncio.create_task(asyncio.to_thread(load))
 
 if __name__ == "__main__":
     import uvicorn
