@@ -28,7 +28,7 @@ from api.routes.interview_analytics import router as interview_analytics_router
 from api.routes.live_interview import router as live_interview_router
 from api.routes.recruiter_v2 import router as recruiter_router
 
-from backend.services.ats_service import _get_bert_model
+from services.ats_service import _get_bert_model
 from config.db import connect_db, disconnect_db
 from core.config import settings
 from core.logging import setup_logging
