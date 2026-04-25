@@ -68,7 +68,7 @@ def create_application() -> FastAPI:
             "https://resume-screening-system-lyart.vercel.app",
             "https://resume-screening-system-hb2d.onrender.com"
         ],
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
