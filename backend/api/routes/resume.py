@@ -196,15 +196,19 @@ async def upload_resume(
 
     original_filename = sanitize_filename(file.filename or "resume")
 
-    # ✅ Version logic
-    count = await resume_repo.count_by_user(str(current_user.id))
-    version = count + 1
+    # # ✅ Version logic
+    # count = await resume_repo.count_by_user(str(current_user.id))
+    # version = count + 1
 
-    # ✅ Make old resumes inactive
-    await resume_repo.collection.update_many(
-        {"user_id": str(current_user.id)},
-        {"$set": {"is_primary": False}}
-    )
+    # # ✅ Make old resumes inactive
+    # await resume_repo.collection.update_many(
+    #     {"user_id": str(current_user.id)},
+    #     {"$set": {"is_primary": False}}
+    # )
+    # 🔥 DELETE old resumes (only keep latest)
+    await resume_repo.collection.delete_many({
+        "user_id": str(current_user.id)
+    })
 
     # ✅ Save in DB
     resume_data = {
@@ -217,8 +221,7 @@ async def upload_resume(
         "file_url": file_url,           # for recruiter
         "status": ResumeStatus.PENDING,
         "tags": [],
-        "is_primary": True,
-        "version": version,
+        "is_primary": True
     }
 
     resume = await resume_repo.create(resume_data)

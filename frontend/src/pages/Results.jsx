@@ -422,44 +422,60 @@ export default function Results() {
 
   // ── Resume dropzone ───────────────────────────────────────────────────────
 const onResumeDrop = useCallback(async (accepted) => {
-    const file = accepted[0]
-    if (!file) return
-    
-    // Delete previous resume if exists
-    if (resumeId) {
-      try {
-        await deleteResume(resumeId)
-        toast.success('Previous resume cleared')
-      } catch (err) {
-        console.warn('Failed to delete previous resume:', err)
-      }
-      setResumeId('')
-      setUploadDone(false)
-    }
-    
-    setResumeFile(file)
-    setUploading(true); setUploadProgress(0)
+  const file = accepted[0]
+  if (!file) return
+
+  // 🔥 Delete previous resume (optional but good)
+  if (resumeId) {
     try {
-      const fd = new FormData(); fd.append('file', file)
-      await uploadResume(file, pct => setUploadProgress(pct))
-      // Poll until parsed (max 30s)
-      let parsed = null
-      for (let i = 0; i < 15; i++) {
-        await new Promise(r => setTimeout(r, 2000))
-        const { data: list } = await getResumes({ page_size: 5 }) // Small list for current only
-        const found = (list.resumes || []).find(r => r.original_filename === file.name && r.status === 'parsed')
-        if (found) { parsed = found; break }
-      }
-      if (parsed) {
-        setResumeId(parsed.id); setUploadDone(true)
-        toast.success('Resume uploaded and parsed ✓')
-      } else {
-        toast('Resume uploaded — parsing in progress…', { icon:'⏳' })
-      }
+      await deleteResume(resumeId)
+      toast.success('Previous resume cleared')
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Upload failed')
-    } finally { setUploading(false) }
-  }, [resumeId]) // Depend on resumeId for delete
+      console.warn('Failed to delete previous resume:', err)
+    }
+    setResumeId('')
+    setUploadDone(false)
+  }
+
+  setResumeFile(file)
+  setUploading(true)
+  setUploadProgress(0)
+
+  try {
+    await uploadResume(file, pct => setUploadProgress(pct))
+
+    // 🔥 Poll until parsed (latest resume only)
+    let parsed = null
+
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 2000))
+
+      const { data: list } = await getResumes({ page: 1, page_size: 1 })
+
+      const latest = list.resumes?.[0]
+
+      // ✅ Direct check (no find, no filename)
+      if (latest && latest.status === 'parsed') {
+        parsed = latest
+        break
+      }
+    }
+
+    if (parsed) {
+      setResumeId(parsed.id)
+      setUploadDone(true)
+      toast.success('Resume uploaded and parsed ✓')
+    } else {
+      toast('Resume uploaded — parsing in progress…', { icon: '⏳' })
+    }
+
+  } catch (err) {
+    toast.error(err.response?.data?.detail || 'Upload failed')
+  } finally {
+    setUploading(false)
+  }
+
+}, [resumeId])
 
   const { getRootProps: getResumeRootProps, getInputProps: getResumeInputProps, isDragActive: resumeDrag } = useDropzone({
     onDrop: onResumeDrop, multiple: false, disabled: uploading,
@@ -487,7 +503,8 @@ const onResumeDrop = useCallback(async (accepted) => {
 
   // ── Analyze ───────────────────────────────────────────────────────────────
   const handleAnalyze = async () => {
-    const rid = resumeId || savedResumes[0]?.id
+    // const rid = resumeId || savedResumes[0]?.id
+    const rid = resumeId
     if (!rid) { toast.error('Upload a resume first'); return }
     const jd  = jdText.trim()
     if (jd.length < 30 && !jdFile) { toast.error('Paste a job description (min 30 chars)'); return }
@@ -513,7 +530,7 @@ const onResumeDrop = useCallback(async (accepted) => {
 
   // ── Enhance ───────────────────────────────────────────────────────────────
   const handleEnhance = async () => {
-    const rid = resumeId || savedResumes[0]?.id
+    const rid = resumeId
     if (!rid) { toast.error('Resume required'); return }
     setEnhancing(true)
     try {
@@ -531,36 +548,6 @@ const onResumeDrop = useCallback(async (accepted) => {
       toast.error(err.response?.data?.detail || 'Enhancement failed')
     } finally { setEnhancing(false) }
   }
-
-  // ── Download PDF ──────────────────────────────────────────────────────────
-// const handleDownloadPDF = async () => {
-//   try {
-//     setGeneratingPDF(true)
-
-//     const resumeId = result?.resume_id || result?.id || '';
-//     console.log('[PDF] Using resume_id:', resumeId, 'Full result:', result);
-
-//     if (!resumeId) {
-//       toast.error('No resume found. Please run analysis first.');
-//       return;
-//     }
-
-//     // Generate PDF
-//     const res = await generatePDF({ resume_id: resumeId, template: "modern" });
-//     console.log('[PDF] SUCCESS response:', res.data);
-
-//     const downloadUrl = res.data.download_path;
-//     console.log('[PDF] Downloading via API:', downloadUrl);
-    
-//     // Fix double /api/v1 prefix (backend returns full path, api adds baseURL)
-//     const cleanUrl = downloadUrl.replace('/api/v1', '');
-//     console.log('[PDF] Clean URL:', cleanUrl);
-
-//     // Download with auth token via API
-//     const blobResponse = await api.get(cleanUrl, { 
-//       responseType: 'blob',
-//       timeout: 30000 
-//     });
     const handleDownloadPDF = async () => {
       try {
         setGeneratingPDF(true)
@@ -596,40 +583,7 @@ const onResumeDrop = useCallback(async (accepted) => {
       }
     }
 
-//     // Create download link
-//     const blob = new Blob([blobResponse.data], { type: 'application/pdf' });
-//     const url = window.URL.createObjectURL(blob);
-//     const a = document.createElement('a');
-//     a.href = url;
-//     a.download = `enhanced-resume-${Date.now()}.pdf`;
-//     document.body.appendChild(a);
-//     a.click();
-//     window.URL.revokeObjectURL(url);
-//     document.body.removeChild(a);
-
-//     toast.success('✅ PDF downloaded!');
-//     console.log('[PDF] Download complete');
-
-//   } catch (err) {
-//     console.error('[PDF] FULL ERROR:', err);
-//     console.error('[PDF] Response:', err.response?.data);
-    
-//     const detail = err.response?.data?.detail;
-//     if (detail === "Invalid or expired authentication credentials") {
-//       toast.error('Session expired. Please login again.');
-//       localStorage.clear();
-//       window.location.href = '/login?expired=true';
-//     } else if (detail?.includes('not found')) {
-//       toast.error('Resume not found. Try re-uploading.');
-//     } else {
-//       toast.error(detail || 'PDF generation failed');
-//     }
-//   } finally {
-//     setGeneratingPDF(false);
-//   }
-// }
-
-  const rid = resumeId || savedResumes[0]?.id
+  const rid = resumeId
   const TABS = ['Keywords', 'Skills', 'Roadmap & Resources']
 
   // ════════════════════════════════════════════════════════════════════════════
