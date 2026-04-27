@@ -2,14 +2,14 @@
 ATS Service — Hybrid TF-IDF + BERT scoring engine
 final_score = 0.75 * BERT + 0.25 * TF-IDF
 """
-
+import requests
 import time
 from typing import List, Optional, Tuple
 
 import numpy as np
 import structlog
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+# from sentence_transformers import SentenceTransformer
+# from sklearn.metrics.pairwise import cosine_similarity
 
 from core.config import settings
 from models.resume_model import ResumeModel
@@ -23,16 +23,16 @@ from utils.validators import normalize_score, score_to_label
 logger = structlog.get_logger(__name__)
 
 # ─── Singleton BERT Model ─────────────────────────────────────────────────────
-_bert_model: Optional[SentenceTransformer] = None
+# _bert_model: Optional[SentenceTransformer] = None
 
-
-def _get_bert_model() -> SentenceTransformer:
-    global _bert_model
-    if _bert_model is None:
-        logger.info("Loading BERT model", model=settings.BERT_MODEL_NAME)
-        _bert_model = SentenceTransformer(settings.BERT_MODEL_NAME)
-        logger.info("BERT model loaded ------")
-    return _bert_model
+HF_API_URL = "https://huggingface.co/spaces/rk937/ats-bert-api"
+# def _get_bert_model() -> SentenceTransformer:
+#     global _bert_model
+#     if _bert_model is None:
+#         logger.info("Loading BERT model", model=settings.BERT_MODEL_NAME)
+#         _bert_model = SentenceTransformer(settings.BERT_MODEL_NAME)
+#         logger.info("BERT model loaded ------")
+#     return _bert_model
 
 
 class ATSService:
@@ -66,7 +66,8 @@ class ATSService:
             raise ValueError("Resume has no parsed text. Re-upload and parse first.")
 
         # ── Step 1: Core Similarity ──────────────────────────────────────────
-        bert_score = self._compute_bert_similarity(resume_text, job_description)
+        # bert_score = self._compute_bert_similarity(resume_text, job_description)
+        bert_score = self._compute_hf_similarity(resume_text, job_description)
         tfidf_score = get_tfidf_similarity(resume_text, job_description)
         final_score = normalize_score(
             self.bert_weight * bert_score + self.tfidf_weight * tfidf_score
@@ -140,34 +141,61 @@ class ATSService:
                 "tfidf": "sklearn-1.4",
             },
         )
-
-    # ─── BERT Similarity ──────────────────────────────────────────────────────
-    def _compute_bert_similarity(self, text1: str, text2: str) -> float:
+    
+    def _compute_hf_similarity(self, text1: str, text2: str) -> float:
         try:
-            model = _get_bert_model()
-            # Truncate to avoid token limit
-            t1 = clean_text(text1)[:3000]
-            t2 = clean_text(text2)[:3000]
-            embeddings = model.encode([t1, t2], convert_to_numpy=True, normalize_embeddings=True)
-            sim = float(np.dot(embeddings[0], embeddings[1]))
-            return normalize_score(sim)
-        except Exception as e:
-            logger.warning("BERT similarity failed, falling back to 0", error=str(e))
+            response = requests.post(
+                HF_API_URL,
+                json={"data": [text1[:3000], text2[:3000]]},
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                logger.warning("HF status error", status=response.status_code)
+                return 0.0
+
+            result = response.json()
+
+            if "data" in result and len(result["data"]) > 0:
+                score_data = result["data"][0]
+
+                if isinstance(score_data, dict) and "score" in score_data:
+                    return normalize_score(score_data["score"] / 100)
+
+            logger.warning("HF invalid response", response=result)
             return 0.0
 
-    # ─── Bulk BERT Embeddings ─────────────────────────────────────────────────
-    def bulk_bert_similarity(self, resume_texts: List[str], jd_text: str) -> List[float]:
-        try:
-            model = _get_bert_model()
-            all_texts = [clean_text(t)[:3000] for t in resume_texts] + [clean_text(jd_text)[:3000]]
-            embeddings = model.encode(all_texts, convert_to_numpy=True, normalize_embeddings=True)
-            jd_embedding = embeddings[-1].reshape(1, -1)
-            resume_embeddings = embeddings[:-1]
-            sims = cosine_similarity(resume_embeddings, jd_embedding).flatten()
-            return [normalize_score(float(s)) for s in sims]
         except Exception as e:
-            logger.error("Bulk BERT failed", error=str(e))
-            return [0.0] * len(resume_texts)
+            logger.error("HF similarity failed", error=str(e))
+        return 0.0
+
+    # ─── BERT Similarity ──────────────────────────────────────────────────────
+    # def _compute_bert_similarity(self, text1: str, text2: str) -> float:
+    #     try:
+    #         model = _get_bert_model()
+    #         # Truncate to avoid token limit
+    #         t1 = clean_text(text1)[:3000]
+    #         t2 = clean_text(text2)[:3000]
+    #         embeddings = model.encode([t1, t2], convert_to_numpy=True, normalize_embeddings=True)
+    #         sim = float(np.dot(embeddings[0], embeddings[1]))
+    #         return normalize_score(sim)
+    #     except Exception as e:
+    #         logger.warning("BERT similarity failed, falling back to 0", error=str(e))
+    #         return 0.0
+
+    # ─── Bulk BERT Embeddings ─────────────────────────────────────────────────
+    # def bulk_bert_similarity(self, resume_texts: List[str], jd_text: str) -> List[float]:
+    #     try:
+    #         model = _get_bert_model()
+    #         all_texts = [clean_text(t)[:3000] for t in resume_texts] + [clean_text(jd_text)[:3000]]
+    #         embeddings = model.encode(all_texts, convert_to_numpy=True, normalize_embeddings=True)
+    #         jd_embedding = embeddings[-1].reshape(1, -1)
+    #         resume_embeddings = embeddings[:-1]
+    #         sims = cosine_similarity(resume_embeddings, jd_embedding).flatten()
+    #         return [normalize_score(float(s)) for s in sims]
+    #     except Exception as e:
+    #         logger.error("Bulk BERT failed", error=str(e))
+    #         return [0.0] * len(resume_texts)
 
     # ─── Keyword Analysis ─────────────────────────────────────────────────────
     def _keyword_analysis(
